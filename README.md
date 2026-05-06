@@ -2,7 +2,7 @@
 
 **Persistent SSH bridge for AI remote system management.**
 
-> ⚠️ **Windows-only for now.** The live terminal popup feature uses Windows Terminal / CMD + PowerShell scripts. The core SSH engine (connection, tools, file ops, system detection) works on any platform, but the visual popup is Windows-specific. macOS/Linux support for that piece is coming.
+> ⚠️ **ssh popup is Windows-only for now.** The live terminal popup feature uses Windows Terminal / CMD + PowerShell scripts. The core SSH engine (connection, tools, file ops, system detection) works on any platform, but the visual popup is Windows-specific.
 
 pi-ssh-link gives your AI agent persistent "hands" on a remote Linux server. It opens a stateful SSH session with reliable command parsing (printable sentinels, PTY-safe), auto-detects the OS and package manager, and provides safe file operations via Base64 chunked transfer.
 
@@ -47,21 +47,21 @@ You'll be prompted for a password. Or pass it inline:
 
 ### Commands
 
-| Command | Description |
-|---------|-------------|
-| `/ssh connect [user@]host[:port] [-p <password>]` | Connect to a remote server |
-| `/ssh disconnect` | Close the current SSH session |
-| `/ssh status` | Show connection info and system details |
+| Command                                           | Description                             |
+| ------------------------------------------------- | --------------------------------------- |
+| `/ssh connect [user@]host[:port] [-p <password>]` | Connect to a remote server              |
+| `/ssh disconnect`                                 | Close the current SSH session           |
+| `/ssh status`                                     | Show connection info and system details |
 
 ### Tools (callable by the AI)
 
-| Tool | Description |
-|------|-------------|
-| `ssh_bash` | Run any shell command (cd/env state persists) |
-| `ssh_read` | Read a remote file |
-| `ssh_write` | Write content to a remote file (Base64 chunks) |
-| `ssh_edit` | Surgical string replacement in a remote file |
-| `ssh_detect_system` | Get structured OS/user/package-manager info |
+| Tool                | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| `ssh_bash`          | Run any shell command (cd/env state persists)  |
+| `ssh_read`          | Read a remote file                             |
+| `ssh_write`         | Write content to a remote file (Base64 chunks) |
+| `ssh_edit`          | Surgical string replacement in a remote file   |
+| `ssh_detect_system` | Get structured OS/user/package-manager info    |
 
 ## How it works
 
