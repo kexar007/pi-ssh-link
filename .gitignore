@@ -1,0 +1,13 @@
+# dependencies
+node_modules/
+package-lock.json
+
+# pi agent session files and logs
+pi-session-*.html
+*.session.jsonl
+sessions/
+.pi/
+
+# OS junk
+.DS_Store
+Thumbs.db

@@ -1,0 +1,142 @@
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import { SshSession } from "./session.js";
+import { registerTools } from "./tools.js";
+import type { SshProfile } from "./types.js";
+
+export default function (pi: ExtensionAPI) {
+  const session = new SshSession();
+  let toolsRegistered = false;
+
+  const ensureTools = () => {
+    if (!toolsRegistered) {
+      registerTools(pi, session);
+      toolsRegistered = true;
+    }
+  };
+
+  const parseProfile = (args: string): { profile: SshProfile; password?: string } => {
+    // Format: [user@]host[:port] [-p|--password <password>]
+    const parts = args.trim().split(/\s+/);
+    let hostPart = "";
+    let password: string | undefined;
+
+    for (let i = 0; i < parts.length; i++) {
+      if ((parts[i] === "-p" || parts[i] === "--password") && i + 1 < parts.length) {
+        password = parts[i + 1];
+        i++; // skip the value
+      } else {
+        hostPart = parts[i];
+      }
+    }
+
+    let username = "root";
+    let host = hostPart;
+    let port = 22;
+
+    if (hostPart.includes("@")) {
+      const atParts = hostPart.split("@");
+      username = atParts[0];
+      host = atParts.slice(1).join("@");
+    }
+
+    if (host.includes(":")) {
+      const lastColon = host.lastIndexOf(":");
+      const portStr = host.slice(lastColon + 1);
+      host = host.slice(0, lastColon);
+      const parsedPort = parseInt(portStr, 10);
+      if (!isNaN(parsedPort)) port = parsedPort;
+    }
+
+    const profile: SshProfile = { host, port, username };
+    if (password) profile.password = password;
+
+    return { profile, password };
+  };
+
+  pi.registerCommand("ssh", {
+    description: "SSH remote session management",
+    getArgumentCompletions: (prefix: string) => {
+      const subcommands = ["connect", "disconnect", "status"];
+      const filtered = subcommands.filter((s) => s.startsWith(prefix));
+      return filtered.length > 0 ? filtered.map((v) => ({ value: v, label: v })) : null;
+    },
+    handler: async (args: string, ctx: ExtensionCommandContext) => {
+      const parts = args.trim().split(/\s+/);
+      const sub = parts[0]?.toLowerCase();
+      const rest = parts.slice(1).join(" ");
+
+      switch (sub) {
+        case "connect": {
+          if (!rest) {
+            ctx.ui.notify("Usage: /ssh connect [user@]host[:port] [-p <password>]", "error");
+            return;
+          }
+          if (session.conn) {
+            ctx.ui.notify("Already connected. Disconnect first.", "error");
+            return;
+          }
+          const { profile } = parseProfile(rest);
+
+          // If no password was provided via CLI flag, prompt for it
+          if (!profile.password) {
+            const pw = await ctx.ui.input(
+              `Password for ${profile.username}@${profile.host}:${profile.port}:`,
+              "",
+            );
+            if (pw) profile.password = pw;
+          }
+
+          ctx.ui.notify(
+            `Connecting to ${profile.username}@${profile.host}:${profile.port}...`,
+            "info",
+          );
+          try {
+            await session.connect(profile);
+            ensureTools();
+            ctx.ui.notify(
+              `Connected! OS: ${session.system?.os}, user: ${session.system?.user}, pm: ${session.system?.packageManager}`,
+              "success",
+            );
+            ctx.ui.setStatus("ssh", `SSH: ${profile.username}@${profile.host}`);
+          } catch (e: any) {
+            ctx.ui.notify(`Connection failed: ${e.message}`, "error");
+            session.disconnect();
+          }
+          return;
+        }
+
+        case "disconnect": {
+          if (!session.conn) {
+            ctx.ui.notify("Not connected.", "info");
+            return;
+          }
+          session.disconnect();
+          ctx.ui.setStatus("ssh", "");
+          ctx.ui.notify("Disconnected.", "info");
+          return;
+        }
+
+        case "status": {
+          if (!session.conn || !session.system) {
+            ctx.ui.notify("Not connected. Use /ssh connect to connect.", "info");
+            return;
+          }
+          ctx.ui.notify(
+            `Connected to ${session.system.user}@${session.system.os} | pm: ${session.system.packageManager} | sudo: ${session.system.hasSudo}`,
+            "info",
+          );
+          return;
+        }
+
+        default:
+          ctx.ui.notify("Usage: /ssh connect|disconnect|status", "error");
+      }
+    },
+  });
+
+  pi.on("session_shutdown", async () => {
+    if (session.conn) {
+      session.disconnect();
+    }
+  });
+}
