@@ -21,13 +21,13 @@ Built for [pi](https://pi.dev), the terminal AI coding agent.
 ## Install
 
 ```bash
-pi install git:github.com/<your-username>/pi-ssh-link
+pi install git:github.com/kexar007/pi-ssh-link
 ```
 
 Or clone and use locally:
 
 ```bash
-git clone https://github.com/<your-username>/pi-ssh-link.git
+git clone https://github.com/kexar007/pi-ssh-link.git
 pi -e ./pi-ssh-link
 ```
 
@@ -82,7 +82,7 @@ You'll be prompted for a password. Or pass it inline:
 ## Development
 
 ```bash
-git clone https://github.com/<your-username>/pi-ssh-link.git
+git clone https://github.com/kexar007/pi-ssh-link.git
 cd pi-ssh-link
 npm install
 # Edit source, then test with:
