@@ -13,7 +13,24 @@ export class SshSession {
     this.window.open(`SSH: ${p.username}@${p.host}`);
     this.conn = new SshConnection(this.window);
     await this.conn.connect(p);
-    this.system = await detectSystem(this.conn);
+
+    // Detection is best-effort — a failed probe must never abort the connection
+    try {
+      this.system = await detectSystem(this.conn);
+    } catch (err) {
+      console.warn("[pi-ssh-link] System detection failed, using defaults:", err);
+      this.system = {
+        os:             "unknown",
+        packageManager: "unknown",
+        arch:           "unknown",
+        user:           "unknown",
+        hasSudo:        false,
+        shell:          "unknown",
+        isContainer:    false,
+        isTermux:       false,
+        raw:            { uname: "", osRelease: "" },
+      };
+    }
   }
 
   disconnect() {

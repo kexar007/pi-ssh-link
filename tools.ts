@@ -138,4 +138,30 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
       };
     },
   });
+
+  pi.registerTool({
+    name: "ssh_status",
+    label: "SSH Status",
+    description: "Returns the current SSH connection status",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx: ExtensionContext) {
+      guard();
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                status: session.conn!.getStatus(),
+                reconnectAttempts: session.conn!.reconnectAttempts,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+        details: {},
+      };
+    },
+  });
 }
