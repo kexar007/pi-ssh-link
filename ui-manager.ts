@@ -59,6 +59,26 @@ export class UiManager {
     }
   }
 
+  scrollUp(): void {
+    this.panel.scrollUp();
+    this.tui?.requestRender();
+  }
+
+  scrollDown(): void {
+    this.panel.scrollDown();
+    this.tui?.requestRender();
+  }
+
+  scrollToBottom(): void {
+    this.panel.scrollToBottom();
+    this.tui?.requestRender();
+  }
+
+  clearPanel(): void {
+    this.panel.clearPanel();
+    this.tui?.requestRender();
+  }
+
   private mountWidget(): void {
     if (!this.ctx || !this.panelVisible) return;
     const panel = this.panel;
@@ -69,7 +89,6 @@ export class UiManager {
       return {
         render: (w: number) => panel.render(w),
         invalidate: () => panel.invalidate(),
-        handleInput: (data: string) => { panel.handleInput(data); tui.requestRender(); },
       };
     });
   }
@@ -81,7 +100,7 @@ export class UiManager {
     this.ctx.ui.setStatus(
       "ssh-link",
       theme.fg("success", "● SSH connected") +
-      theme.fg("dim", "  ctrl+shift+s: toggle panel")
+      theme.fg("dim", "  Ctrl+Shift+T toggle  Ctrl+Shift+↑↓ scroll  Ctrl+Shift+L clear")
     );
   }
 }

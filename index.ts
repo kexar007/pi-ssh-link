@@ -134,12 +134,47 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // Register keyboard shortcut to toggle the SSH output panel
-  pi.registerShortcut("ctrl+shift+s", {
+  // Keyboard shortcuts for the SSH output panel
+  // Note: pi-tui widgets don't receive focus, so we use registered
+  // shortcuts instead of inline handleInput. These keys avoid conflicts
+  // with pi's built-in bindings (see keybindings.md).
+  pi.registerShortcut("ctrl+shift+t", {
     description: "Toggle SSH output panel",
     handler: async (ctx: ExtensionContext) => {
       session.ui.updateContext(ctx);
       session.ui.togglePanel();
+    },
+  });
+
+  pi.registerShortcut("ctrl+shift+up", {
+    description: "SSH panel: scroll up",
+    handler: async (ctx: ExtensionContext) => {
+      session.ui.updateContext(ctx);
+      session.ui.scrollUp();
+    },
+  });
+
+  pi.registerShortcut("ctrl+shift+down", {
+    description: "SSH panel: scroll down",
+    handler: async (ctx: ExtensionContext) => {
+      session.ui.updateContext(ctx);
+      session.ui.scrollDown();
+    },
+  });
+
+  pi.registerShortcut("ctrl+shift+end", {
+    description: "SSH panel: scroll to bottom",
+    handler: async (ctx: ExtensionContext) => {
+      session.ui.updateContext(ctx);
+      session.ui.scrollToBottom();
+    },
+  });
+
+  pi.registerShortcut("ctrl+shift+l", {
+    description: "SSH panel: clear output",
+    handler: async (ctx: ExtensionContext) => {
+      session.ui.updateContext(ctx);
+      session.ui.clearPanel();
     },
   });
 

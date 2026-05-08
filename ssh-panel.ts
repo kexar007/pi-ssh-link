@@ -1,4 +1,4 @@
-import { truncateToWidth, matchesKey, Key } from "@mariozechner/pi-tui";
+import { truncateToWidth } from "@mariozechner/pi-tui";
 import type { SshProfile, SystemInfo } from "./types.js";
 import { stripAnsi } from "./utils.js";
 
@@ -152,19 +152,24 @@ export class SshPanel {
     return lines;
   }
 
-  handleInput(data: string): void {
-    if (matchesKey(data, Key.up)) {
-      this.scrollOffset = Math.min(this.scrollOffset + 1, Math.max(0, this.buffer.length - 1));
-      this.invalidate();
-    } else if (matchesKey(data, Key.down)) {
-      this.scrollOffset = Math.max(0, this.scrollOffset - 1);
-      this.invalidate();
-    } else if (matchesKey(data, Key.end) || matchesKey(data, "G")) {
-      this.scrollOffset = 0;
-      this.invalidate();
-    } else if (matchesKey(data, Key.ctrl("l"))) {
-      this.clear();
-    }
+  // Scroll controls — called via registered shortcuts (widgets don't get focus in pi-tui)
+  scrollUp(): void {
+    this.scrollOffset = Math.min(this.scrollOffset + 1, Math.max(0, this.buffer.length - 1));
+    this.invalidate();
+  }
+
+  scrollDown(): void {
+    this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+    this.invalidate();
+  }
+
+  scrollToBottom(): void {
+    this.scrollOffset = 0;
+    this.invalidate();
+  }
+
+  clearPanel(): void {
+    this.clear();
   }
 
   invalidate(): void {
@@ -231,7 +236,7 @@ export class SshPanel {
 
   private renderFooter(width: number, theme: any, totalLines: number, startIndex: number, endIndex: number): string {
     if (totalLines === 0) {
-      return theme.fg("dim", "↑↓ scroll  End=bottom  Ctrl+L=clear");
+      return theme.fg("dim", "Ctrl+Shift+↑↓ scroll  Ctrl+Shift+End=bottom  Ctrl+Shift+L=clear");
     }
 
     const visible = endIndex - startIndex;
@@ -239,7 +244,7 @@ export class SshPanel {
     const scrolled = this.scrollOffset > 0
       ? theme.fg("warning", `  ↑${this.scrollOffset} above`)
       : "";
-    const keys = theme.fg("dim", "  ↑↓ scroll  End=bottom  Ctrl+L=clear");
+    const keys = theme.fg("dim", "  Ctrl+Shift+↑↓ scroll  End=bottom  L=clear");
 
     return truncateToWidth(theme.fg("dim", posInfo) + scrolled + keys, width);
   }
