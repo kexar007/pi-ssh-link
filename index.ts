@@ -138,7 +138,7 @@ export default function (pi: ExtensionAPI) {
   // Note: pi-tui widgets don't receive focus, so we use registered
   // shortcuts instead of inline handleInput. These keys avoid conflicts
   // with pi's built-in bindings (see keybindings.md).
-  pi.registerShortcut("ctrl+shift+t", {
+  pi.registerShortcut("ctrl+q", {
     description: "Toggle SSH output panel",
     handler: async (ctx: ExtensionContext) => {
       session.ui.updateContext(ctx);

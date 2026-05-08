@@ -100,7 +100,7 @@ export class UiManager {
     this.ctx.ui.setStatus(
       "ssh-link",
       theme.fg("success", "● SSH connected") +
-      theme.fg("dim", "  Ctrl+Shift+T toggle  Ctrl+Shift+↑↓ scroll  Ctrl+Shift+L clear")
+      theme.fg("dim", "  Ctrl+Q toggle  Ctrl+Shift+↑↓ scroll  Ctrl+Shift+L clear")
     );
   }
 }
