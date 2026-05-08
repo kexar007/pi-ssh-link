@@ -5,45 +5,52 @@ pi-ssh-link gives an AI agent persistent "hands" on a remote Linux server. This 
 ## Overview
 
 ```
-┌──────────────────────────┐
-│        pi agent          │
-│  (LLM tool calls)        │
-└─────┬────────────────────┘
-      │ ssh_bash / ssh_read / ssh_write / ssh_edit / ssh_detect_system
-      ▼
-┌──────────────────────────┐
-│     tools.ts             │  ← 5 tools, each with null-guards
-│     (registerTools)      │
-└─────┬────────────────────┘
-      │
-      ▼
-┌──────────────────────────┐
-│     index.ts             │  ← /ssh command handler
-│     (SshSession)         │
-└─────┬────────────────────┘
-      │
-      ▼
-┌──────────────────────────┐
-│     session.ts           │  ← owns connection + system info
-│     (SshSession)         │
-└─────┬────────────────────┘
-      │
-      ▼
-┌──────────────────────────┐
-│     connection.ts        │  ← persistent PTY shell via ssh2
-│     (SshConnection)      │
-└─────┬────────────────────┘
-      │
-      ▼
-┌──────────────────────────┐
-│   Remote Linux Server    │
-│  (bash/sh via PTY)       │
-└──────────────────────────┘
+┌───────────────────────────────┐
+│         pi agent              │
+│   (LLM tool calls)            │
+└──────┬────────────────────────┘
+       │ ssh_bash / ssh_read / ssh_write / ssh_edit / ssh_detect_system
+       ▼
+┌───────────────────────────────┐
+│      tools.ts                 │  ← 6 tools, null-guards, renderCall/renderResult
+│      (registerTools)          │
+└──────┬────────────────────────┘
+       │
+       ▼
+┌───────────────────────────────┐
+│      index.ts                 │  ← /ssh command, shortcut, user_bash hook
+│      (SshSession)             │
+└──────┬────────────────────────┘
+       │
+       ▼
+┌───────────────────────────────┐
+│      session.ts               │  ← owns connection, system info, UI manager
+│      (SshSession)             │
+└──┬───────┬────────────────────┘
+   │       │
+   ▼       ▼
+┌──────────┴────────────────────┐
+│  connection.ts                │  ← persistent PTY shell via ssh2
+│  (SshConnection)              │     emits raw output + exit codes via callbacks
+└──────────┬────────────────────┘
+           │
+           ▼
+┌───────────────────────────────┐
+│    Remote Linux Server        │
+│   (bash/sh via PTY)           │
+└───────────────────────────────┘
 
-┌──────────────────────────┐
-│   terminal-window.ts     │  ← live Windows Terminal popup
-│   (human visibility)     │
-└──────────────────────────┘
+┌───────────────────────────────┐
+│  ui-manager.ts                │  ← wires TUI widget + footer
+│  (UiManager)                  │
+└──┬────────────────────────────┘
+   │
+   ▼
+┌───────────────────────────────┐
+│  ssh-panel.ts                 │  ← native pi TUI panel
+│  (SshPanel)                   │     200-line circular buffer, scrollable,
+│                               │     shows connection info + exit codes
+└───────────────────────────────┘
 ```
 
 ## Key Design Decisions
@@ -109,6 +116,17 @@ Different Linux distributions use different package managers and have different 
 
 This produces a structured `SystemInfo` object used by the AI to adapt its commands.
 
+### 6. Native TUI Panel Instead of External Terminal
+
+The original implementation used a Windows Terminal popup (`terminal-window.ts`) via PowerShell scripts. This was Windows-only, fragile, and spawned external processes.
+
+**Solution:** A native pi TUI panel implemented entirely in TypeScript:
+- `SshPanel` — a `Component`-interface class with a 200-line circular buffer
+- `UiManager` — wires the panel into pi's `setWidget`/`setStatus` APIs
+- No external processes, no PowerShell, no platform restrictions
+- Works on Linux, macOS, Windows, and Termux
+- Scrollable with arrow keys, toggleable with `ctrl+shift+s`
+
 ## Module Breakdown
 
 ### `types.ts`
@@ -131,13 +149,48 @@ The `SshConnection` class manages the full lifecycle:
 | `isConnected` | Getter for connection state |
 
 Key details:
+- Constructor takes `(onOutput, onExitCode?)` callbacks — emits raw output and exit codes for the TUI panel
 - Handshake timeout of 15s with a polling interval of 50ms checking for the READY sentinel
 - Command timeout sends `\x03` to interrupt hung processes
 - Double-resolve protection via `resolved` flag in `connect()`
 - Strip ANSI from all output before returning to caller
 
 ### `session.ts`
-Simple state holder that wires `SshConnection`, `TerminalWindow`, and `SystemInfo` together.
+State holder that wires `SshConnection`, `UiManager`, and `SystemInfo` together.
+- `connect(profile, ctx)` — updates UI context, creates connection with callbacks, runs system detection, triggers `ui.onConnect()`
+- `disconnect()` — tears down connection and calls `ui.onDisconnect()`
+
+### `ssh-panel.ts` — The Live TUI Panel
+A `Component`-interface class that renders SSH output inside pi's own interface:
+
+| Method | Purpose |
+|--------|---------|
+| `write(text)` | Appends output text to the circular buffer (strips ANSI, caps at 200 lines) |
+| `setExitCode(code)` | Updates the last exit code shown in the header |
+| `setConnected(profile)` | Resets buffer, shows connection header |
+| `setDisconnected()` | Shows disconnection header |
+| `render(width)` | Returns rendered lines for the TUI |
+| `handleInput(data)` | Processes arrow keys for scrolling |
+| `invalidate()` | Clears cached render state |
+
+The header line shows:
+- Green `SSH ●` indicator when connected
+- Remote host in accent color
+- Exit code (green `exit:0` or red `exit:<code>`) after each command
+
+### `ui-manager.ts` — TUI Wiring
+Manages the lifecycle of the TUI widget and footer status:
+
+| Method | Purpose |
+|--------|---------|
+| `updateContext(ctx)` | Stores fresh context, injects theme into panel |
+| `onConnect(profile)` | Mounts widget, updates footer |
+| `onDisconnect()` | Clears widget and footer |
+| `onOutput(text)` | Forwards to panel |
+| `onExitCode(code)` | Forwards to panel |
+| `togglePanel()` | Shows/hides the panel |
+
+Uses `ctx.ui.setWidget("ssh-panel", factory)` with a component factory that passes the theme from the TUI callback into `SshPanel.setTheme()`.
 
 ### `system-detect.ts`
 Runs `cat /etc/os-release` and `id`, parses the output using string matching. Returns a `SystemInfo` with:
@@ -146,15 +199,8 @@ Runs `cat /etc/os-release` and `id`, parses the output using string matching. Re
 - `user` — extracted from `uid=1000(foo)` in the `id` output
 - `hasSudo` — true if user is root or has (sudo)/(wheel) group
 
-### `terminal-window.ts`
-Windows-only feature for human visibility:
-- Creates a temp `.log` file and a `.ps1` PowerShell script
-- The script runs `Get-Content -Wait <log> -Tail 50` in a new Windows Terminal or cmd.exe window
-- All SSH output is written to the log file, giving a real-time view of what's happening on the remote server
-- Cleans up temp files on disconnect
-
 ### `tools.ts` — The LLM Interface
-Five tools registered via `pi.registerTool()`:
+Six tools registered via `pi.registerTool()`:
 
 | Tool | Parameters | What it does |
 |------|-----------|-------------|
@@ -163,8 +209,9 @@ Five tools registered via `pi.registerTool()`:
 | `ssh_write` | path, content | Writes file via Base64 chunked transfer |
 | `ssh_edit` | path, old_str, new_str | Reads file, replaces text, writes back |
 | `ssh_detect_system` | (none) | Returns structured `SystemInfo` as JSON |
+| `ssh_status` | (none) | Returns connection status and reconnect attempts |
 
-All tools have a `guard()` that throws if `session.conn` is null, preventing null-reference crashes.
+All tools have `guard()` that throws if `session.conn` is null. Each tool also has `renderCall` and `renderResult` methods for rich inline rendering in pi's chat output — showing colours, exit codes, and file paths.
 
 ### `index.ts` — Entry Point
 Registers the `/ssh` command with three subcommands:
@@ -172,9 +219,13 @@ Registers the `/ssh` command with three subcommands:
 - `/ssh disconnect` — clean teardown
 - `/ssh status` — displays current connection info
 
-Tools are registered lazily on first connect (via `ensureTools()`), so they don't clutter the tool list until a session is active.
+Also registers at the top level:
+- `ctrl+shift+s` shortcut — toggles the SSH output panel
+- `user_bash` handler — routes `!command` through SSH when connected
+- `agent_start` handler — keeps the UI context fresh
+- `session_shutdown` handler — ensures clean disconnection
 
-The `session_shutdown` event handler ensures clean disconnection when pi exits or reloads.
+Tools are registered lazily on first connect (via `ensureTools()`), so they don't clutter the tool list until a session is active.
 
 ### `skills/ssh-link/SKILL.md`
 A skill document that tells the AI how to use the SSH tools effectively:
@@ -189,9 +240,9 @@ A skill document that tells the AI how to use the SSH tools effectively:
 ```
 User: "/ssh connect root@host"
   → index.ts parseProfile() → profile object
-  → session.ts connect(profile)
-    → terminal-window.ts open()  [spawns terminal popup]
-    → connection.ts connect(profile)
+  → session.ts connect(profile, ctx)
+    → ui-manager.ts updateContext(ctx)
+    → connection.ts connect(profile)  [with onOutput/onExitCode callbacks]
       → ssh2 Client → shell({ term: "xterm-256color" })
       → write "stty -echo && stty cols 1000 && echo __PI_SSH_READY__\n"
       → poll buffer for READY sentinel → resolve
@@ -199,15 +250,26 @@ User: "/ssh connect root@host"
       → connection.ts exec("cat /etc/os-release")
       → connection.ts exec("id")
       → return SystemInfo
+    → ui-manager.ts onConnect(profile)
+      → ctx.ui.setWidget("ssh-panel", factory)
+      → ctx.ui.setStatus("ssh-link", "● SSH connected  ctrl+shift+s: toggle panel")
   → tools registered via registerTools()
   → notify user with OS info
 
 Agent calls ssh_bash: "apt-get update"
   → tools.ts guard() → connection.ts exec("apt-get update")
+    → onOutput emitted for each data chunk → ssh-panel.ts write()
     → write "echo __PI_SSH_START_123__; apt-get update; echo __PI_SSH_END_123__0\n"
     → poll for END sentinel in output buffer
-    → parse exit code, strip ANSI
+    → parse exit code → onExitCode emitted → ssh-panel.ts setExitCode()
+    → strip ANSI
     → return CommandResult { stdout, stderr, exitCode }
+  → tools.ts renderResult() colours exit code (green/red)
+  → TUI panel shows live output and final exit code
+
+User presses ctrl+shift+s
+  → ui-manager.ts togglePanel()
+  → ctx.ui.setWidget("ssh-panel", undefined) or re-mounts widget
 ```
 
 ## Performance Considerations
@@ -216,11 +278,11 @@ Agent calls ssh_bash: "apt-get update"
 - **Output truncation:** Results over 8000 chars are truncated (halved from both ends with a truncation notice)
 - **Timeout:** Default 30s per command, configurable per call
 - **Keepalive:** SSH keepalive every 10s with 3 retries
+- **Panel buffer:** 200-line circular buffer prevents memory leaks on long-running sessions
 
 ## Future Improvements
 
 - SFTP-based file transfer (faster for large files)
-- Support for non-Windows terminal windows
 - SSH key agent forwarding
 - Multiple concurrent sessions
 - Session persistence (reconnect on disconnect)

@@ -1,3 +1,4 @@
+import { Text } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { SshSession } from "./session.js";
@@ -28,7 +29,11 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
         const res = await session.conn!.exec(params.command, (params.timeout_seconds ?? 30) * 1000);
         return {
           content: [{ type: "text" as const, text: truncateOutput(formatResult(res)) }],
-          details: { exitCode: res.exitCode },
+          details: {
+            stdout: res.stdout,
+            stderr: res.stderr,
+            exitCode: res.exitCode,
+          },
         };
       } catch (e: any) {
         return {
@@ -37,6 +42,20 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
           details: {},
         };
       }
+    },
+    renderCall(args: any, theme: any, _ctx: any) {
+      const label = theme.fg("toolTitle", theme.bold("ssh $ "));
+      const cmd = theme.fg("accent", args.command ?? "");
+      return new Text(label + cmd, 1, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "running…"), 1, 0);
+      const exitCode = result.details?.exitCode ?? 0;
+      const exitColor = exitCode === 0 ? "success" : "error";
+      const exitLabel = theme.fg(exitColor, `[exit ${exitCode}]`);
+      const stdout = (result.details?.stdout ?? result.content ?? "").trim();
+      const body = stdout ? "\n" + theme.fg("dim", stdout) : "";
+      return new Text(exitLabel + body, 1, 0);
     },
   });
 
@@ -58,8 +77,23 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
       const res = await session.conn!.exec(cmd);
       return {
         content: [{ type: "text" as const, text: truncateOutput(res.stdout) }],
-        details: { exitCode: res.exitCode },
+        details: {
+          content: res.stdout,
+          exitCode: res.exitCode,
+        },
       };
+    },
+    renderCall(args: any, theme: any, _ctx: any) {
+      const label = theme.fg("toolTitle", theme.bold("ssh read "));
+      const path = theme.fg("accent", args.path ?? "");
+      return new Text(label + path, 1, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "reading…"), 1, 0);
+      const lines = (result.content ?? "").split("\n").length;
+      const summary = theme.fg("success", `✓ ${lines} lines`);
+      if (!options.expanded) return new Text(summary, 1, 0);
+      return new Text(summary + "\n" + theme.fg("dim", result.content ?? ""), 1, 0);
     },
   });
 
@@ -86,6 +120,16 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
         content: [{ type: "text" as const, text: `Written to ${params.path}` }],
         details: {},
       };
+    },
+    renderCall(args: any, theme: any, _ctx: any) {
+      const label = theme.fg("toolTitle", theme.bold("ssh write "));
+      const path = theme.fg("accent", args.path ?? "");
+      const size = args.content ? theme.fg("dim", ` (${args.content.length} bytes)`) : "";
+      return new Text(label + path + size, 1, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "writing…"), 1, 0);
+      return new Text(theme.fg("success", "✓ written"), 1, 0);
     },
   });
 
@@ -117,6 +161,15 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
         details: {},
       };
     },
+    renderCall(args: any, theme: any, _ctx: any) {
+      const label = theme.fg("toolTitle", theme.bold("ssh edit "));
+      const path = theme.fg("accent", args.path ?? "");
+      return new Text(label + path, 1, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "editing…"), 1, 0);
+      return new Text(theme.fg("success", "✓ patched"), 1, 0);
+    },
   });
 
   pi.registerTool({
@@ -136,6 +189,23 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
         ],
         details: {},
       };
+    },
+    renderCall(_args: any, theme: any, _ctx: any) {
+      return new Text(theme.fg("toolTitle", theme.bold("ssh detect-system")), 1, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "detecting…"), 1, 0);
+      try {
+        const info = JSON.parse(result.content ?? "{}");
+        const text =
+          theme.fg("success", "✓ ") +
+          theme.fg("accent", info.os ?? "?") + " " +
+          theme.fg("dim", info.packageManager ?? "") + " " +
+          theme.fg("muted", info.user ?? "");
+        return new Text(text, 1, 0);
+      } catch {
+        return new Text(theme.fg("success", "✓ detected"), 1, 0);
+      }
     },
   });
 

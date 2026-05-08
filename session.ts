@@ -1,17 +1,20 @@
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { SshConnection } from "./connection.js";
-import { TerminalWindow } from "./terminal-window.js";
+import { UiManager } from "./ui-manager.js";
 import { detectSystem } from "./system-detect.js";
 import type { SshProfile, SystemInfo } from "./types.js";
 
 export class SshSession {
   public conn: SshConnection | null = null;
-  public window: TerminalWindow | null = null;
+  public ui: UiManager = new UiManager();
   public system: SystemInfo | null = null;
 
-  async connect(p: SshProfile) {
-    this.window = new TerminalWindow();
-    this.window.open(`SSH: ${p.username}@${p.host}`);
-    this.conn = new SshConnection(this.window);
+  async connect(p: SshProfile, ctx: ExtensionContext) {
+    this.ui.updateContext(ctx);
+    this.conn = new SshConnection(
+      (text) => this.ui.onOutput(text),
+      (code) => this.ui.onExitCode(code)
+    );
     await this.conn.connect(p);
 
     // Detection is best-effort — a failed probe must never abort the connection
@@ -31,12 +34,14 @@ export class SshSession {
         raw:            { uname: "", osRelease: "" },
       };
     }
+
+    this.ui.onConnect(p);
   }
 
   disconnect() {
     this.conn?.disconnect();
-    this.window?.close();
     this.conn = null;
     this.system = null;
+    this.ui.onDisconnect();
   }
 }

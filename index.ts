@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { SshSession } from "./session.js";
 import { registerTools } from "./tools.js";
 import type { SshProfile } from "./types.js";
@@ -91,7 +91,7 @@ export default function (pi: ExtensionAPI) {
             "info",
           );
           try {
-            await session.connect(profile);
+            await session.connect(profile, ctx);
             ensureTools();
             ctx.ui.notify(
               `Connected! OS: ${session.system?.os}, user: ${session.system?.user}, pm: ${session.system?.packageManager}`,
@@ -132,6 +132,38 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify("Usage: /ssh connect|disconnect|status", "error");
       }
     },
+  });
+
+  // Register keyboard shortcut to toggle the SSH output panel
+  pi.registerShortcut("ctrl+shift+s", {
+    description: "Toggle SSH output panel",
+    handler: async (ctx: ExtensionContext) => {
+      session.ui.updateContext(ctx);
+      session.ui.togglePanel();
+    },
+  });
+
+  // Route !commands through SSH when connected
+  pi.on("user_bash", (event, _ctx: ExtensionContext) => {
+    if (!session.conn?.isConnected) return;
+    return {
+      operations: {
+        async exec(command: string, _cwd: string, _options: any) {
+          const result = await session.conn!.exec(command, 30000);
+          return {
+            output: (result.stdout + (result.stderr ? "\n" + result.stderr : "")).trim(),
+            exitCode: result.exitCode,
+            cancelled: false,
+            truncated: result.stdout.length >= 8000,
+          };
+        },
+      },
+    };
+  });
+
+  // Keep ctx fresh on every agent start
+  pi.on("agent_start", async (_event: any, ctx: ExtensionContext) => {
+    session.ui.updateContext(ctx);
   });
 
   pi.on("session_shutdown", async () => {

@@ -2,7 +2,6 @@ import { Client, type ConnectConfig } from "ssh2";
 import { readFileSync } from "node:fs";
 import { makeReadySentinel, makeStartSentinel, makeEndSentinel, stripAnsi } from "./utils.js";
 import type { SshProfile, CommandResult } from "./types.js";
-import type { TerminalWindow } from "./terminal-window.js";
 
 export class SshConnection {
   private client: Client | null = null;
@@ -14,7 +13,10 @@ export class SshConnection {
   private _reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 3;
 
-  constructor(private window: TerminalWindow) {}
+  constructor(
+    private onOutput: (text: string) => void,
+    private onExitCode?: (code: number) => void
+  ) {}
 
   async connect(profile: SshProfile): Promise<void> {
     this.profile = profile; // Store for reconnect
@@ -62,7 +64,7 @@ export class SshConnection {
             this.shell.on("data", (d: Buffer) => {
               const t = d.toString("utf8");
               this.outputBuffer += t;
-              this.window.write(t);
+              this.onOutput(t);
               if (!resolved && this.outputBuffer.includes(readySentinel)) {
                 clearTimeout(handshakeTimer);
                 finish();
@@ -156,6 +158,7 @@ export class SshConnection {
           const afterEnd = this.outputBuffer.slice(endIdx + endSentinel.length);
           const codeMatch = afterEnd.match(/^(\d+)/);
           const code = codeMatch ? parseInt(codeMatch[1], 10) : -1;
+          this.onExitCode?.(code);
           resolve({
             stdout: stripAnsi(out).trim(),
             stderr: code !== 0 ? `Process exited with code ${code}` : "",

@@ -2,9 +2,7 @@
 
 **Persistent SSH bridge for AI remote system management.**
 
-> ⚠️ **ssh popup is Windows-only for now.** The live terminal popup feature uses Windows Terminal / CMD + PowerShell scripts. The core SSH engine (connection, tools, file ops, system detection) works on any platform, but the visual popup is Windows-specific.
-
-pi-ssh-link gives your AI agent persistent "hands" on a remote Linux server. It opens a stateful SSH session with reliable command parsing (printable sentinels, PTY-safe), auto-detects the OS and package manager, and provides safe file operations via Base64 chunked transfer.
+pi-ssh-link gives your AI agent persistent "hands" on a remote Linux server. It opens a stateful SSH session with reliable command parsing (printable sentinels, PTY-safe), auto-detects the OS and package manager, and provides safe file operations via Base64 chunked transfer. SSH output is shown in a live TUI panel inside pi — no external windows, works on any platform.
 
 Built for [pi](https://pi.dev), the terminal AI coding agent.
 
@@ -15,8 +13,10 @@ Built for [pi](https://pi.dev), the terminal AI coding agent.
 - **PTY-safe parsing** — printable sentinels (`__PI_SSH_`) avoid control-character corruption
 - **Command echo eliminated** — `stty -echo` so the command text never bleeds into stdout
 - **Safe file operations** — `ssh_write` uses Base64 chunked transfer, `ssh_edit` does surgical string replacement
-- **Live terminal window** (Windows) — pops a Windows Terminal window showing real-time SSH output
+- **Live TUI panel** — native pi panel shows real-time SSH output, scrollable with arrow keys, toggleable with `ctrl+shift+s`
+- **Cross-platform** — works on Linux, macOS, Windows, and Termux (no PowerShell, no external processes)
 - **Graceful timeout + queue** — commands time out and are interruptible; concurrent calls queue automatically
+- **Rich tool rendering** — tool calls show coloured labels, file paths, exit codes in pi's chat output
 
 ## Install
 
@@ -53,6 +53,12 @@ You'll be prompted for a password. Or pass it inline:
 | `/ssh disconnect`                                 | Close the current SSH session           |
 | `/ssh status`                                     | Show connection info and system details |
 
+### Shortcuts
+
+| Shortcut          | Description                    |
+| ----------------- | ------------------------------ |
+| `ctrl+shift+s`    | Toggle the SSH output panel    |
+
 ### Tools (callable by the AI)
 
 | Tool                | Description                                    |
@@ -63,6 +69,15 @@ You'll be prompted for a password. Or pass it inline:
 | `ssh_edit`          | Surgical string replacement in a remote file   |
 | `ssh_detect_system` | Get structured OS/user/package-manager info    |
 
+### Quick commands while connected
+
+When the SSH session is active, type `!command` in pi to run it directly on the remote server:
+
+```
+!ls -la /var/www
+!systemctl status nginx
+```
+
 ## How it works
 
 1. Opens a PTY shell via `ssh2`
@@ -71,13 +86,13 @@ You'll be prompted for a password. Or pass it inline:
 4. Parses stdout between sentinels, extracts exit codes
 5. Detects OS from `/etc/os-release` and user from `id`
 6. Files are transferred as Base64 to avoid shell escaping issues
+7. Live output streams into a native TUI panel above the editor — scrollable, theme-aware
 
 ## Requirements
 
 - [pi](https://pi.dev) terminal AI coding agent
 - Node.js 18+
 - SSH access to a Linux server
-- Windows (for the terminal popup feature; SSH core works on any platform)
 
 ## Development
 
