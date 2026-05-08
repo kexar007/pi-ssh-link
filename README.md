@@ -13,7 +13,7 @@ Built for [pi](https://pi.dev), the terminal AI coding agent.
 - **PTY-safe parsing** — printable sentinels (`__PI_SSH_`) avoid control-character corruption
 - **Command echo eliminated** — `stty -echo` so the command text never bleeds into stdout
 - **Safe file operations** — `ssh_write` uses Base64 chunked transfer, `ssh_edit` does surgical string replacement
-- **Live TUI panel** — native pi panel shows real-time SSH output, scrollable with arrow keys, toggleable with `ctrl+shift+s`
+- **Live TUI panel** — native pi panel shows real-time SSH output with line numbers, OS badge, scroll controls
 - **Cross-platform** — works on Linux, macOS, Windows, and Termux (no PowerShell, no external processes)
 - **Graceful timeout + queue** — commands time out and are interruptible; concurrent calls queue automatically
 - **Rich tool rendering** — tool calls show coloured labels, file paths, exit codes in pi's chat output
@@ -55,9 +55,13 @@ You'll be prompted for a password. Or pass it inline:
 
 ### Shortcuts
 
-| Shortcut          | Description                    |
-| ----------------- | ------------------------------ |
-| `ctrl+shift+s`    | Toggle the SSH output panel    |
+| Shortcut    | Action                    |
+| ----------- | ------------------------- |
+| `Ctrl+Q`     | Toggle the SSH output panel |
+| `Alt+K`      | Scroll up (vim-style)       |
+| `Alt+J`      | Scroll down (vim-style)     |
+| `Alt+G`      | Jump to bottom (vim-style)  |
+| `Alt+L`      | Clear panel output          |
 
 ### Tools (callable by the AI)
 
