@@ -146,7 +146,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerShortcut("ctrl+shift+up", {
+  pi.registerShortcut("alt+k", {
     description: "SSH panel: scroll up",
     handler: async (ctx: ExtensionContext) => {
       session.ui.updateContext(ctx);
@@ -154,7 +154,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerShortcut("ctrl+shift+down", {
+  pi.registerShortcut("alt+j", {
     description: "SSH panel: scroll down",
     handler: async (ctx: ExtensionContext) => {
       session.ui.updateContext(ctx);
@@ -162,7 +162,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerShortcut("ctrl+shift+end", {
+  pi.registerShortcut("alt+g", {
     description: "SSH panel: scroll to bottom",
     handler: async (ctx: ExtensionContext) => {
       session.ui.updateContext(ctx);
@@ -170,7 +170,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerShortcut("ctrl+shift+l", {
+  pi.registerShortcut("alt+l", {
     description: "SSH panel: clear output",
     handler: async (ctx: ExtensionContext) => {
       session.ui.updateContext(ctx);

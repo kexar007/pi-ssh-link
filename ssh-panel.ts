@@ -236,7 +236,7 @@ export class SshPanel {
 
   private renderFooter(width: number, theme: any, totalLines: number, startIndex: number, endIndex: number): string {
     if (totalLines === 0) {
-      return theme.fg("dim", "Ctrl+Shift+↑↓ scroll  Ctrl+Shift+End=bottom  Ctrl+Shift+L=clear");
+      return theme.fg("dim", "Alt+K/J scroll  Alt+G=bottom  Alt+L=clear");
     }
 
     const visible = endIndex - startIndex;
@@ -244,7 +244,7 @@ export class SshPanel {
     const scrolled = this.scrollOffset > 0
       ? theme.fg("warning", `  ↑${this.scrollOffset} above`)
       : "";
-    const keys = theme.fg("dim", "  Ctrl+Shift+↑↓ scroll  End=bottom  L=clear");
+    const keys = theme.fg("dim", "  Alt+K/J scroll  G=bottom  L=clear");
 
     return truncateToWidth(theme.fg("dim", posInfo) + scrolled + keys, width);
   }
