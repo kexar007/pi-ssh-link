@@ -11,6 +11,11 @@ export class SshSession {
 
   async connect(p: SshProfile, ctx: ExtensionContext) {
     this.ui.updateContext(ctx);
+
+    // Mount the panel with "connecting" state BEFORE connection,
+    // so output streams into the already-visible panel.
+    this.ui.setConnecting(p);
+
     this.conn = new SshConnection(
       (text) => this.ui.onOutput(text),
       (code) => this.ui.onExitCode(code)
@@ -35,7 +40,10 @@ export class SshSession {
       };
     }
 
+    // Transition from "connecting" to "connected" (no buffer clear)
     this.ui.onConnect(p);
+    // Push system info to panel for the header badge
+    this.ui.setSystemInfo(this.system);
   }
 
   disconnect() {

@@ -1,10 +1,11 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { SshPanel } from "./ssh-panel.js";
-import type { SshProfile } from "./types.js";
+import type { SshProfile, SystemInfo } from "./types.js";
 
 export class UiManager {
   private panel = new SshPanel();
   private ctx: ExtensionContext | null = null;
+  private tui: any = null;
   private panelVisible = true;
 
   updateContext(ctx: ExtensionContext): void {
@@ -15,8 +16,18 @@ export class UiManager {
     }
   }
 
+  setConnecting(profile: SshProfile): void {
+    this.panel.setConnecting(profile);
+    this.mountWidget();
+  }
+
+  setSystemInfo(info: SystemInfo): void {
+    this.panel.setSystemInfo(info);
+    this.tui?.requestRender();
+  }
+
   onConnect(profile: SshProfile): void {
-    this.panel.setConnected(profile);
+    this.panel.markConnected(profile);
     this.mountWidget();
     this.updateFooter();
   }
@@ -29,18 +40,22 @@ export class UiManager {
 
   onOutput(text: string): void {
     this.panel.write(text);
+    this.tui?.requestRender();
   }
 
   onExitCode(code: number): void {
     this.panel.setExitCode(code);
+    this.tui?.requestRender();
   }
 
   togglePanel(): void {
     this.panelVisible = !this.panelVisible;
     if (this.panelVisible) {
       this.mountWidget();
+      this.ctx?.ui.notify("SSH panel shown", "info");
     } else {
       this.ctx?.ui.setWidget("ssh-panel", undefined);
+      this.ctx?.ui.notify("SSH panel hidden", "info");
     }
   }
 
@@ -49,6 +64,7 @@ export class UiManager {
     const panel = this.panel;
 
     this.ctx.ui.setWidget("ssh-panel", (tui, theme) => {
+      this.tui = tui;
       panel.setTheme(theme);
       return {
         render: (w: number) => panel.render(w),
