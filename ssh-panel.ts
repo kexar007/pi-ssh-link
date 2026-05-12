@@ -1,4 +1,4 @@
-import { truncateToWidth } from "@mariozechner/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { SshProfile, SystemInfo } from "./types.js";
 import { stripAnsi } from "./utils.js";
 

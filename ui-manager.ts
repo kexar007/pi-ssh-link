@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SshPanel } from "./ssh-panel.js";
 import type { SshProfile, SystemInfo } from "./types.js";
 

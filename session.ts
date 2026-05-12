@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SshConnection } from "./connection.js";
 import { UiManager } from "./ui-manager.js";
 import { detectSystem } from "./system-detect.js";
