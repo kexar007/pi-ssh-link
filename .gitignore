@@ -9,6 +9,9 @@ sessions/
 .pi/
 AGENT.md
 
+# generated output
+repomix-output.xml
+
 # OS junk
 .DS_Store
 Thumbs.db
