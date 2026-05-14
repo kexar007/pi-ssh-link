@@ -29,13 +29,11 @@ export class UiManager {
   onConnect(profile: SshProfile): void {
     this.panel.markConnected(profile);
     this.mountWidget();
-    this.updateFooter();
   }
 
   onDisconnect(): void {
     this.panel.setDisconnected();
     this.ctx?.ui.setWidget("ssh-panel", undefined);
-    this.ctx?.ui.setStatus("ssh-link", undefined);
   }
 
   onOutput(text: string): void {
@@ -93,14 +91,4 @@ export class UiManager {
     });
   }
 
-  private updateFooter(): void {
-    if (!this.ctx) return;
-    const theme = this.ctx.ui?.theme;
-    if (!theme) return;
-    this.ctx.ui.setStatus(
-      "ssh-link",
-      theme.fg("success", "● SSH connected") +
-      theme.fg("dim", "  Ctrl+Q toggle  Alt+K/J scroll  Alt+G bottom  Alt+L clear")
-    );
-  }
 }

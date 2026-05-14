@@ -8,8 +8,10 @@ export class SshSession {
   public conn: SshConnection | null = null;
   public ui: UiManager = new UiManager();
   public system: SystemInfo | null = null;
+  public profile: SshProfile | null = null;
 
   async connect(p: SshProfile, ctx: ExtensionContext) {
+    this.profile = p;
     this.ui.updateContext(ctx);
 
     // Mount the panel with "connecting" state BEFORE connection,

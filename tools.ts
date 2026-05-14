@@ -2,6 +2,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SshSession } from "./session.js";
+import { detectSystem } from "./system-detect.js";
 import { truncateOutput, formatResult } from "./utils.js";
 
 const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
@@ -46,16 +47,16 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
     renderCall(args: any, theme: any, _ctx: any) {
       const label = theme.fg("toolTitle", theme.bold("ssh $ "));
       const cmd = theme.fg("accent", args.command ?? "");
-      return new Text(label + cmd, 1, 0);
+      return new Text(label + cmd, 0, 0);
     },
     renderResult(result: any, options: any, theme: any, _ctx: any) {
-      if (options.isPartial) return new Text(theme.fg("dim", "running…"), 1, 0);
+      if (options.isPartial) return new Text(theme.fg("dim", "running…"), 0, 0);
       const exitCode = result.details?.exitCode ?? 0;
       const exitColor = exitCode === 0 ? "success" : "error";
       const exitLabel = theme.fg(exitColor, `[exit ${exitCode}]`);
       const stdout = (result.details?.stdout ?? result.content ?? "").trim();
       const body = stdout ? "\n" + theme.fg("dim", stdout) : "";
-      return new Text(exitLabel + body, 1, 0);
+      return new Text(exitLabel + body, 0, 0);
     },
   });
 
@@ -86,14 +87,15 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
     renderCall(args: any, theme: any, _ctx: any) {
       const label = theme.fg("toolTitle", theme.bold("ssh read "));
       const path = theme.fg("accent", args.path ?? "");
-      return new Text(label + path, 1, 0);
+      return new Text(label + path, 0, 0);
     },
     renderResult(result: any, options: any, theme: any, _ctx: any) {
-      if (options.isPartial) return new Text(theme.fg("dim", "reading…"), 1, 0);
-      const lines = (result.content ?? "").split("\n").length;
+      if (options.isPartial) return new Text(theme.fg("dim", "reading…"), 0, 0);
+      const text = result.details?.content ?? "";
+      const lines = text.split("\n").length;
       const summary = theme.fg("success", `✓ ${lines} lines`);
-      if (!options.expanded) return new Text(summary, 1, 0);
-      return new Text(summary + "\n" + theme.fg("dim", result.content ?? ""), 1, 0);
+      if (!options.expanded) return new Text(summary, 0, 0);
+      return new Text(summary + "\n" + theme.fg("dim", text), 0, 0);
     },
   });
 
@@ -125,11 +127,11 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
       const label = theme.fg("toolTitle", theme.bold("ssh write "));
       const path = theme.fg("accent", args.path ?? "");
       const size = args.content ? theme.fg("dim", ` (${args.content.length} bytes)`) : "";
-      return new Text(label + path + size, 1, 0);
+      return new Text(label + path + size, 0, 0);
     },
     renderResult(result: any, options: any, theme: any, _ctx: any) {
-      if (options.isPartial) return new Text(theme.fg("dim", "writing…"), 1, 0);
-      return new Text(theme.fg("success", "✓ written"), 1, 0);
+      if (options.isPartial) return new Text(theme.fg("dim", "writing…"), 0, 0);
+      return new Text(theme.fg("success", "✓ written"), 0, 0);
     },
   });
 
@@ -147,9 +149,21 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
       guard();
       const res = await session.conn!.exec(`base64 ${sq(params.path)}`);
       const content = Buffer.from(res.stdout, "base64").toString("utf8");
-      if (!content.includes(params.old_str)) {
+      const occurrences = content.split(params.old_str).length - 1;
+
+      if (occurrences === 0) {
         return {
           content: [{ type: "text" as const, text: "Error: old_str not found in file." }],
+          details: {},
+        };
+      }
+
+      if (occurrences > 1) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: old_str found ${occurrences} times. Make it more specific so it matches exactly once.`
+          }],
           details: {},
         };
       }
@@ -164,11 +178,11 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
     renderCall(args: any, theme: any, _ctx: any) {
       const label = theme.fg("toolTitle", theme.bold("ssh edit "));
       const path = theme.fg("accent", args.path ?? "");
-      return new Text(label + path, 1, 0);
+      return new Text(label + path, 0, 0);
     },
     renderResult(result: any, options: any, theme: any, _ctx: any) {
-      if (options.isPartial) return new Text(theme.fg("dim", "editing…"), 1, 0);
-      return new Text(theme.fg("success", "✓ patched"), 1, 0);
+      if (options.isPartial) return new Text(theme.fg("dim", "editing…"), 0, 0);
+      return new Text(theme.fg("success", "✓ patched"), 0, 0);
     },
   });
 
@@ -176,35 +190,45 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
     name: "ssh_detect_system",
     label: "SSH Detect System",
     description:
-      "Get structured OS, user, package manager, and privilege info from the remote server.",
+      "Re-run OS, user, package manager, and privilege detection on the remote server. " +
+      "Use this if the environment may have changed since connecting (e.g. new software installed).",
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx: ExtensionContext) {
       guard();
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(session.system, null, 2),
-          },
-        ],
-        details: {},
-      };
+      try {
+        session.system = await detectSystem(session.conn!);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(session.system, null, 2),
+            },
+          ],
+          details: { system: session.system },
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: `Detection failed: ${e.message}` }],
+          isError: true,
+          details: {},
+        };
+      }
     },
     renderCall(_args: any, theme: any, _ctx: any) {
-      return new Text(theme.fg("toolTitle", theme.bold("ssh detect-system")), 1, 0);
+      return new Text(theme.fg("toolTitle", theme.bold("ssh re-detect")), 0, 0);
     },
     renderResult(result: any, options: any, theme: any, _ctx: any) {
-      if (options.isPartial) return new Text(theme.fg("dim", "detecting…"), 1, 0);
+      if (options.isPartial) return new Text(theme.fg("dim", "detecting…"), 0, 0);
       try {
-        const info = JSON.parse(result.content ?? "{}");
+        const info = result.details?.system ?? JSON.parse(result.content ?? "{}");
         const text =
           theme.fg("success", "✓ ") +
           theme.fg("accent", info.os ?? "?") + " " +
           theme.fg("dim", info.packageManager ?? "") + " " +
           theme.fg("muted", info.user ?? "");
-        return new Text(text, 1, 0);
+        return new Text(text, 0, 0);
       } catch {
-        return new Text(theme.fg("success", "✓ detected"), 1, 0);
+        return new Text(theme.fg("success", "✓ detected"), 0, 0);
       }
     },
   });
@@ -215,15 +239,25 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
     description: "Returns the current SSH connection status",
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx: ExtensionContext) {
-      guard();
+      if (!session.conn) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ status: "disconnected", reconnectAttempts: 0 }, null, 2),
+            },
+          ],
+          details: {},
+        };
+      }
       return {
         content: [
           {
             type: "text" as const,
             text: JSON.stringify(
               {
-                status: session.conn!.getStatus(),
-                reconnectAttempts: session.conn!.reconnectAttempts,
+                status: session.conn.getStatus(),
+                reconnectAttempts: session.conn.reconnectAttempts,
               },
               null,
               2
@@ -232,6 +266,27 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
         ],
         details: {},
       };
+    },
+    renderCall(_args: any, theme: any, _ctx: any) {
+      return new Text(theme.fg("toolTitle", theme.bold("ssh status")), 0, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "checking…"), 0, 0);
+      try {
+        const info = JSON.parse(
+          Array.isArray(result.content)
+            ? result.content.map((c: any) => c.text ?? "").join("")
+            : result.content ?? "{}"
+        );
+        const statusColor = info.status === "connected" ? "success" : "error";
+        const statusText = theme.fg(statusColor, info.status ?? "unknown");
+        const reconnects = info.reconnectAttempts > 0
+          ? theme.fg("warning", ` (reconnects: ${info.reconnectAttempts})`)
+          : "";
+        return new Text(statusText + reconnects, 0, 0);
+      } catch {
+        return new Text(theme.fg("success", "✓ ok"), 0, 0);
+      }
     },
   });
 }

@@ -7,6 +7,32 @@ export default function (pi: ExtensionAPI) {
   const session = new SshSession();
   let toolsRegistered = false;
 
+  const updateFooter = (ctx: ExtensionCommandContext) => {
+    if (!session.conn) {
+      ctx.ui.setFooter(undefined);
+      return;
+    }
+    ctx.ui.setFooter((_tui: any, theme: any) => ({
+      render(_width: number) {
+        const host = session.profile?.host ?? "";
+        const user = session.system?.user ?? "";
+        const os = session.system?.os ?? "";
+        const pm = session.system?.packageManager ?? "";
+        const reconnects: number = session.conn?.reconnectAttempts ?? 0;
+
+        const hostStr = theme.fg("accent", `${user}@${host}`);
+        const osStr = os ? theme.fg("dim", ` [${os}${pm ? " / " + pm : ""}]`) : "";
+        const reconnectStr = reconnects > 0
+          ? theme.fg("warning", ` ⚠ reconnects:${reconnects}`)
+          : "";
+        const dot = theme.fg("success", "● ");
+
+        return [dot + hostStr + osStr + reconnectStr];
+      },
+      invalidate() {},
+    }));
+  };
+
   const ensureTools = () => {
     if (!toolsRegistered) {
       registerTools(pi, session);
@@ -39,7 +65,18 @@ export default function (pi: ExtensionAPI) {
       host = atParts.slice(1).join("@");
     }
 
-    if (host.includes(":")) {
+    if (host.startsWith("[")) {
+      // Bracketed IPv6: [::1] or [::1]:2222
+      const bracket = host.indexOf("]");
+      if (bracket !== -1) {
+        const afterBracket = host.slice(bracket + 1);
+        host = host.slice(1, bracket);
+        if (afterBracket.startsWith(":")) {
+          const parsedPort = parseInt(afterBracket.slice(1), 10);
+          if (!isNaN(parsedPort)) port = parsedPort;
+        }
+      }
+    } else if (host.includes(":")) {
       const lastColon = host.lastIndexOf(":");
       const portStr = host.slice(lastColon + 1);
       host = host.slice(0, lastColon);
@@ -95,9 +132,9 @@ export default function (pi: ExtensionAPI) {
             ensureTools();
             ctx.ui.notify(
               `Connected! OS: ${session.system?.os}, user: ${session.system?.user}, pm: ${session.system?.packageManager}`,
-              "success",
+              "info",
             );
-            ctx.ui.setStatus("ssh", `SSH: ${profile.username}@${profile.host}`);
+            updateFooter(ctx);
           } catch (e: any) {
             ctx.ui.notify(`Connection failed: ${e.message}`, "error");
             session.disconnect();
@@ -111,7 +148,7 @@ export default function (pi: ExtensionAPI) {
             return;
           }
           session.disconnect();
-          ctx.ui.setStatus("ssh", "");
+          ctx.ui.setFooter(undefined);
           ctx.ui.notify("Disconnected.", "info");
           return;
         }

@@ -13,7 +13,6 @@ export class SshPanel {
   private profile: SshProfile | null = null;
   private systemInfo: SystemInfo | null = null;
   private lastExitCode: number | null = null;
-  private lastCommand: string | null = null;
   private cachedWidth?: number;
   private cachedLines?: string[];
   private themeRef: any = null;
@@ -39,11 +38,6 @@ export class SshPanel {
     this.invalidate();
   }
 
-  setLastCommand(cmd: string): void {
-    this.lastCommand = cmd;
-    this.invalidate();
-  }
-
   setSystemInfo(info: SystemInfo): void {
     this.systemInfo = info;
     this.invalidate();
@@ -56,7 +50,6 @@ export class SshPanel {
     this.buffer = [];
     this.scrollOffset = 0;
     this.lastExitCode = null;
-    this.lastCommand = null;
     this.systemInfo = null;
     this.invalidate();
   }
@@ -68,14 +61,6 @@ export class SshPanel {
     this.invalidate();
   }
 
-  setConnected(profile: SshProfile): void {
-    this.connected = true;
-    this.profile = profile;
-    this.buffer = [];
-    this.scrollOffset = 0;
-    this.lastExitCode = null;
-    this.invalidate();
-  }
 
   setDisconnected(): void {
     this.connected = false;
@@ -239,7 +224,6 @@ export class SshPanel {
       return theme.fg("dim", "Alt+K/J scroll  Alt+G=bottom  Alt+L=clear");
     }
 
-    const visible = endIndex - startIndex;
     const posInfo = `lines ${startIndex + 1}-${endIndex}/${totalLines}`;
     const scrolled = this.scrollOffset > 0
       ? theme.fg("warning", `  ↑${this.scrollOffset} above`)

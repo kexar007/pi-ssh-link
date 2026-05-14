@@ -1,0 +1,1717 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.gitignore
+connection.ts
+index.ts
+LICENSE
+package.json
+README.md
+session.ts
+skills/ssh-link/SKILL.md
+ssh-panel.ts
+system-detect.ts
+tools.ts
+tsconfig.json
+types.ts
+ui-manager.ts
+utils.ts
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "isolatedModules": true
+  },
+  "include": ["*.ts"],
+  "exclude": ["node_modules"]
+}
+</file>
+
+<file path="LICENSE">
+MIT License
+
+Copyright (c) 2026
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+</file>
+
+<file path="package.json">
+{
+  "name": "pi-ssh-link",
+  "version": "1.0.0",
+  "description": "Persistent SSH bridge for AI remote system management — connect, execute, read/write files, auto-detect OS",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "ssh",
+    "remote",
+    "server-management",
+    "pi-extension"
+  ],
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "^0.74.0",
+    "@types/ssh2": "^1.15.5",
+    "typebox": "^1.1.38",
+    "typescript": "^5.9.3"
+  }
+}
+</file>
+
+<file path="skills/ssh-link/SKILL.md">
+---
+name: ssh-link
+description: Universal remote system management via persistent SSH (pi-ssh-link). Use for installing packages, editing configs, managing services, reading/writing files, and running commands on remote Linux servers. Supports Alpine (apk), Debian/Ubuntu (apt), and Arch (pacman).
+---
+
+# Skill: Universal Remote System Management
+
+## Persistence Notice
+- The SSH session is **stateful**.
+- If you run `ssh_bash: cd /var/www`, all subsequent `ssh_bash` calls will start in `/var/www`.
+- Environment variables exported via `export VAR=val` will persist.
+
+## Phase 1: Recon
+Run `ssh_detect_system` immediately. This identifies the Package Manager (`apk`, `apt`, `pacman`) and your privileges.
+
+## Phase 2: Adaptation
+- **Alpine:** Default shell is `ash`. Use `apk add`. No bash-specific syntax.
+- **Ubuntu/Debian:** Use `apt-get install -y`.
+- **Arch:** Use `pacman -S --noconfirm`.
+
+## Phase 3: Tool Selection
+- **NEVER use `sed` or `echo >`** for config edits. Use `ssh_edit` (surgical) or `ssh_write` (full).
+- **Interactive Prompts:** Always use non-interactive flags (`-y`). Commands like `top` or `vim` will freeze the session.
+</file>
+
+<file path="utils.ts">
+// Printable sentinel prefix that survives PTY mangling.
+// Control characters (0x1E, etc.) get corrupted by remote PTY line discipline.
+const SENTINEL_PREFIX = "__PI_SSH_";
+
+export function makeReadySentinel(): string {
+  return `${SENTINEL_PREFIX}READY_`;
+}
+
+export function makeStartSentinel(id: number): string {
+  return `${SENTINEL_PREFIX}START_${id}__`;
+}
+
+export function makeEndSentinel(id: number): string {
+  return `${SENTINEL_PREFIX}END_${id}__`;
+}
+
+export function parseEndSentinel(text: string): { id: number; exitCode: number } | null {
+  const m = text.match(/__PI_SSH_END_(\d+)__(\d+)/);
+  if (!m) return null;
+  return { id: parseInt(m[1], 10), exitCode: parseInt(m[2], 10) };
+}
+
+export function stripAnsi(t: string): string {
+  return t.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\r/g, "");
+}
+
+export function truncateOutput(t: string, max = 8000): string {
+  if (t.length <= max) return t;
+  const h = Math.floor(max / 2);
+  return t.slice(0, h) + `\n\n[... ${t.length - max} chars truncated ...]\n\n` + t.slice(-h);
+}
+
+import type { CommandResult } from "./types.js";
+
+export function formatResult(res: CommandResult): string {
+  let out = res.stdout;
+  if (res.stderr) out += `\n[stderr]\n${res.stderr}`;
+  if (res.exitCode !== 0) out += `\n[exit code: ${res.exitCode}]`;
+  return out;
+}
+</file>
+
+<file path="system-detect.ts">
+import type { SshConnection } from "./connection.js";
+import type { SystemInfo } from "./types.js";
+
+export async function detectSystem(conn: SshConnection): Promise<SystemInfo> {
+  // Run all probes in parallel — one round-trip per logical group
+  const [envOut, osReleaseOut, fallbackOut, pmProbeOut, unameOut, idOut] =
+    await Promise.allSettled([
+      conn.exec(
+        'printf "TERMUX_VERSION=%s\\nPREFIX=%s\\nANDROID_ROOT=%s\\n" ' +
+        '"$TERMUX_VERSION" "$PREFIX" "$ANDROID_ROOT"',
+        5000
+      ),
+      conn.exec("cat /etc/os-release 2>/dev/null", 5000),
+      conn.exec(
+        "{ cat /etc/alpine-release 2>/dev/null && echo __ALPINE__; } ; " +
+        "{ cat /etc/debian_version 2>/dev/null && echo __DEBIAN__; } ; " +
+        "{ cat /etc/fedora-release 2>/dev/null && echo __FEDORA__; } ; " +
+        "{ cat /etc/redhat-release 2>/dev/null && echo __REDHAT__; } ; " +
+        "{ cat /etc/openwrt_release 2>/dev/null && echo __OPENWRT__; } ; true",
+        5000
+      ),
+      conn.exec(
+        "command -v apk apt dnf yum pacman xbps-install zypper nix brew opkg pkg emerge 2>/dev/null",
+        5000
+      ),
+      conn.exec("uname -a", 5000),
+      conn.exec("id", 5000),
+    ]);
+
+  const env      = envOut.status      === "fulfilled" ? envOut.value.stdout      : "";
+  const osRel    = osReleaseOut.status === "fulfilled" ? osReleaseOut.value.stdout : "";
+  const fallback = fallbackOut.status  === "fulfilled" ? fallbackOut.value.stdout  : "";
+  const pmProbe  = pmProbeOut.status   === "fulfilled" ? pmProbeOut.value.stdout   : "";
+  const uname    = unameOut.status     === "fulfilled" ? unameOut.value.stdout     : "";
+  const idStr    = idOut.status        === "fulfilled" ? idOut.value.stdout        : "";
+
+  // --- Termux detection (Layer 1) ---
+  const isTermux =
+    env.includes("TERMUX_VERSION=") && !env.includes("TERMUX_VERSION=\n") ||
+    env.includes("/data/data/com.termux") ||
+    uname.toLowerCase().includes("android");
+
+  // --- Parse /etc/os-release ID fields (Layer 2) ---
+  const getOsReleaseField = (field: string): string => {
+    const m = osRel.match(new RegExp(`^${field}=["']?([^"'\\n]+)["']?`, "m"));
+    return m ? m[1].toLowerCase().trim() : "";
+  };
+  const osId     = getOsReleaseField("ID");
+  const osIdLike = getOsReleaseField("ID_LIKE");
+
+  // --- Determine OS type ---
+  type OsType = SystemInfo["os"];
+  let osType: OsType = "unknown";
+
+  if (isTermux) {
+    osType = "termux";
+  } else if (osId === "alpine" || fallback.includes("__ALPINE__")) {
+    osType = "alpine";
+  } else if (osId === "raspbian" || (osId === "debian" && uname.toLowerCase().includes("raspberry"))) {
+    osType = "raspberrypi";
+  } else if (osId === "ubuntu" || osIdLike.includes("ubuntu")) {
+    osType = "ubuntu";
+  } else if (osId === "debian" || osIdLike.includes("debian") || fallback.includes("__DEBIAN__")) {
+    osType = "debian";
+  } else if (osId === "fedora" || fallback.includes("__FEDORA__")) {
+    osType = "fedora";
+  } else if (["rhel", "centos", "rocky", "almalinux", "ol"].includes(osId) || fallback.includes("__REDHAT__")) {
+    osType = "rhel";
+  } else if (osId === "arch" || osIdLike.includes("arch")) {
+    osType = "arch";
+  } else if (osId === "opensuse" || osId.startsWith("opensuse") || osIdLike.includes("suse")) {
+    osType = "opensuse";
+  } else if (osId === "void") {
+    osType = "void";
+  } else if (osId === "nixos") {
+    osType = "nixos";
+  } else if (osId === "gentoo") {
+    osType = "gentoo";
+  } else if (osId === "openwrt" || fallback.includes("__OPENWRT__")) {
+    osType = "openwrt";
+  } else if (uname.toLowerCase().includes("freebsd")) {
+    osType = "freebsd";
+  } else if (uname.toLowerCase().includes("openbsd")) {
+    osType = "openbsd";
+  } else if (uname.toLowerCase().includes("darwin")) {
+    osType = "macos";
+  }
+
+  // --- Determine package manager ---
+  // Priority: known OS mapping first, then binary probe fallback
+  type PmType = SystemInfo["packageManager"];
+  const pmMap: Partial<Record<OsType, PmType>> = {
+    alpine:      "apk",
+    raspberrypi: "apt",
+    ubuntu:      "apt",
+    debian:      "apt",
+    fedora:      "dnf",
+    rhel:        "dnf",   // modern RHEL/CentOS 8+ use dnf; yum is alias
+    arch:        "pacman",
+    opensuse:    "zypper",
+    void:        "xbps",
+    nixos:       "nix",
+    gentoo:      "emerge",
+    openwrt:     "opkg",
+    freebsd:     "pkg",
+    macos:       "brew",
+    termux:      "pkg",   // Termux uses pkg (wrapper over apt)
+  };
+
+  let pm: PmType = pmMap[osType] ?? "unknown";
+
+  // Layer 4 fallback: if still unknown, use binary probe results
+  if (pm === "unknown") {
+    if (pmProbe.includes("/apk"))     pm = "apk";
+    else if (pmProbe.includes("/apt")) pm = "apt";
+    else if (pmProbe.includes("/dnf")) pm = "dnf";
+    else if (pmProbe.includes("/yum")) pm = "yum";
+    else if (pmProbe.includes("/pacman")) pm = "pacman";
+    else if (pmProbe.includes("/xbps-install")) pm = "xbps";
+    else if (pmProbe.includes("/zypper")) pm = "zypper";
+    else if (pmProbe.includes("/nix"))  pm = "nix";
+    else if (pmProbe.includes("/brew")) pm = "brew";
+    else if (pmProbe.includes("/opkg")) pm = "opkg";
+    else if (pmProbe.includes("/emerge")) pm = "emerge";
+    else if (pmProbe.includes("/pkg")) pm = "pkg";
+  }
+
+  // --- Architecture from uname ---
+  let arch: SystemInfo["arch"] = "unknown";
+  if (uname.includes("x86_64") || uname.includes("amd64"))          arch = "x86_64";
+  else if (uname.includes("aarch64") || uname.includes("arm64"))     arch = "arm64";
+  else if (uname.includes("armv7") || uname.includes("armhf"))       arch = "armv7";
+  else if (uname.includes("armv6"))                                   arch = "armv6";
+  else if (uname.includes("i686") || uname.includes("i386"))         arch = "x86";
+  else if (uname.includes("riscv64"))                                 arch = "riscv64";
+
+  // --- Container detection ---
+  // This is best-effort — no single reliable method, so try several signals
+  let isContainer = false;
+  try {
+    const cgroupRes = await conn.exec(
+      "[ -f /proc/1/cgroup ] && cat /proc/1/cgroup 2>/dev/null | head -5 || true",
+      3000
+    );
+    isContainer =
+      cgroupRes.stdout.includes("docker") ||
+      cgroupRes.stdout.includes("lxc") ||
+      cgroupRes.stdout.includes("containerd");
+  } catch { /* non-critical, ignore */ }
+
+  // --- User info ---
+  const user = idStr.match(/uid=\d+\(([^)]+)\)/)?.[1] || "unknown";
+  const hasSudo =
+    idStr.includes("(sudo)") ||
+    idStr.includes("(wheel)") ||
+    idStr.includes("(admin)") ||
+    user === "root";
+
+  // --- Shell detection ---
+  let shell: SystemInfo["shell"] = "unknown";
+  try {
+    const shellRes = await conn.exec("echo $SHELL", 3000);
+    const s = shellRes.stdout.trim();
+    if (s.includes("bash"))      shell = "bash";
+    else if (s.includes("zsh"))  shell = "zsh";
+    else if (s.includes("fish")) shell = "fish";
+    else if (s.includes("ash"))  shell = "ash";   // BusyBox / Alpine default
+    else if (s.includes("sh"))   shell = "sh";
+    else if (s)                  shell = "unknown";
+  } catch { /* non-critical */ }
+
+  return {
+    os: osType,
+    packageManager: pm,
+    arch,
+    user,
+    hasSudo,
+    shell,
+    isContainer,
+    isTermux,
+    raw: { uname, osRelease: osRel },  // expose raw strings for debugging
+  };
+}
+</file>
+
+<file path="types.ts">
+export interface SshProfile {
+  host: string;
+  port: number;
+  username: string;
+  privateKeyPath?: string;
+  password?: string;
+}
+
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+export type OsType =
+  | "alpine" | "ubuntu" | "debian" | "raspberrypi"
+  | "fedora" | "rhel" | "arch" | "opensuse" | "void"
+  | "nixos" | "gentoo" | "openwrt" | "freebsd" | "openbsd"
+  | "macos" | "termux" | "unknown";
+
+export type PackageManager =
+  | "apk" | "apt" | "dnf" | "yum" | "pacman"
+  | "xbps" | "zypper" | "nix" | "brew" | "opkg"
+  | "pkg" | "emerge" | "unknown";
+
+export type Arch =
+  | "x86_64" | "arm64" | "armv7" | "armv6" | "x86" | "riscv64" | "unknown";
+
+export type Shell = "bash" | "zsh" | "fish" | "ash" | "sh" | "unknown";
+
+export interface SystemInfo {
+  os:             OsType;
+  packageManager: PackageManager;
+  arch:           Arch;
+  user:           string;
+  hasSudo:        boolean;
+  shell:          Shell;
+  isContainer:    boolean;
+  isTermux:       boolean;
+  raw:            { uname: string; osRelease: string };
+}
+</file>
+
+<file path=".gitignore">
+# dependencies
+node_modules/
+package-lock.json
+
+# pi agent session files and logs
+pi-session-*.html
+*.session.jsonl
+sessions/
+.pi/
+AGENT.md
+
+# OS junk
+.DS_Store
+Thumbs.db
+nul
+</file>
+
+<file path="connection.ts">
+import { Client, type ConnectConfig } from "ssh2";
+import { readFileSync } from "node:fs";
+import { makeReadySentinel, makeStartSentinel, makeEndSentinel, stripAnsi } from "./utils.js";
+import type { SshProfile, CommandResult } from "./types.js";
+
+export class SshConnection {
+  private client: Client | null = null;
+  private shell: NodeJS.ReadWriteStream | null = null;
+  private outputBuffer = "";
+  private busy = false;
+  private queue: Array<() => void> = [];
+  private profile: SshProfile | null = null;
+  private _reconnectAttempts = 0;
+  private readonly maxReconnectAttempts = 3;
+
+  constructor(
+    private onOutput: (text: string) => void,
+    private onExitCode?: (code: number) => void
+  ) {}
+
+  async connect(profile: SshProfile): Promise<void> {
+    this.profile = profile; // Store for reconnect
+    this._reconnectAttempts = 0;
+    return this._connect(profile);
+  }
+
+  private async _connect(profile: SshProfile): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.client = new Client();
+      const config: ConnectConfig = {
+        host: profile.host,
+        port: profile.port,
+        username: profile.username,
+        keepaliveInterval: 10000,
+        keepaliveCountMax: 3,
+        readyTimeout: 15000,
+      };
+      if (profile.password) config.password = profile.password;
+      else if (profile.privateKeyPath) config.privateKey = readFileSync(profile.privateKeyPath);
+      else
+        config.agent =
+          process.env.SSH_AUTH_SOCK ||
+          (process.platform === "win32" ? "\\\\.\\pipe\\openssh-ssh-agent" : undefined);
+
+      let resolved = false;
+      const readySentinel = makeReadySentinel();
+
+      const finish = (err?: Error) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(handshakeTimer);
+        if (err) reject(err);
+        else {
+          this.outputBuffer = "";
+          resolve();
+        }
+      };
+
+      this.client
+        .on("ready", () => {
+          this.client!.shell({ term: "xterm-256color" }, (err, stream) => {
+            if (err) return finish(err);
+            this.shell = stream;
+            this.shell.on("data", (d: Buffer) => {
+              const t = d.toString("utf8");
+              this.outputBuffer += t;
+              this.onOutput(t);
+              if (!resolved && this.outputBuffer.includes(readySentinel)) {
+                clearTimeout(handshakeTimer);
+                finish();
+              }
+            });
+            // Send sentinel FIRST to confirm shell is alive, then best-effort stty setup.
+            // Use echo with printable sentinels — control chars get corrupted by PTY line discipline.
+            const initCmd = [
+              `echo ${readySentinel}`,
+              "export TERM=xterm-256color",
+              "stty -echo 2>/dev/null",
+              "stty cols 1000 rows 50 2>/dev/null",
+              // Termux: ensure standard tools are on PATH
+              "export PATH=$PATH:${PREFIX}/bin 2>/dev/null || true",
+            ].join("; ");
+            this.shell.write(`${initCmd}\n`);
+          });
+        })
+        .on("error", (err) => finish(err))
+        .connect(config);
+
+      // Timeout: if the shell never sends the sentinel, reject
+      const handshakeTimer = setTimeout(() => {
+        finish(new Error("Shell handshake timed out after 15s"));
+      }, 15000);
+    });
+  }
+
+  private async reconnect(): Promise<void> {
+    if (!this.profile || this._reconnectAttempts >= this.maxReconnectAttempts) {
+      throw new Error("Max reconnect attempts reached");
+    }
+    this._reconnectAttempts++;
+    const delay = this._reconnectAttempts * 1000; // 1s, 2s, 3s backoff
+    await new Promise(r => setTimeout(r, delay));
+    await this._connect(this.profile!);
+  }
+
+  async exec(cmd: string, timeout = 30000): Promise<CommandResult> {
+    if (!this.shell) {
+      try {
+        await this.reconnect();
+      } catch {
+        throw new Error("Connection closed and reconnect failed");
+      }
+    }
+    if (this.busy)
+      return new Promise<CommandResult>((resolve, reject) =>
+        this.queue.push(() => this.exec(cmd, timeout).then(resolve, reject)),
+      );
+
+    this.busy = true;
+    const id = Date.now();
+    const startSentinel = makeStartSentinel(id);
+    const endSentinel = makeEndSentinel(id);
+    // echo with printable sentinels; capture exit code: END_<id>__<code>
+    const wrapped = `echo ${startSentinel}; ${cmd}; echo ${endSentinel}$?\n`;
+
+    return new Promise<CommandResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        try {
+          this.shell?.write("\x03"); // Interrupt hung process
+          this.shell?.removeListener("data", handler);
+        } finally {
+          this.busy = false;
+          this.next();
+          reject(new Error("Command timed out"));
+        }
+      }, timeout);
+
+      const handler = () => {
+        // Prevent unbounded growth if a command produces massive output
+        if (this.outputBuffer.length > 10_000_000) {
+          clearTimeout(timer);
+          this.shell?.removeListener("data", handler);
+          this.busy = false;
+          this.next();
+          reject(new Error("Output exceeded 10MB limit"));
+          return;
+        }
+        const endIdx = this.outputBuffer.indexOf(endSentinel);
+        if (endIdx === -1) return;
+        clearTimeout(timer);
+        this.shell?.removeListener("data", handler);
+
+        const startIdx = this.outputBuffer.indexOf(startSentinel);
+        if (startIdx !== -1) {
+          // Extract output between start and end sentinels
+          const out = this.outputBuffer.slice(startIdx + startSentinel.length, endIdx);
+          // Parse exit code from text after end sentinel
+          const afterEnd = this.outputBuffer.slice(endIdx + endSentinel.length);
+          const codeMatch = afterEnd.match(/^(\d+)/);
+          const code = codeMatch ? parseInt(codeMatch[1], 10) : -1;
+          this.onExitCode?.(code);
+          resolve({
+            stdout: stripAnsi(out).trim(),
+            stderr: code !== 0 ? `Process exited with code ${code}` : "",
+            exitCode: isNaN(code) ? -1 : code,
+          });
+        } else {
+          resolve({ stdout: "", stderr: "Failed to parse output", exitCode: -1 });
+        }
+        this.busy = false;
+        this.next();
+      };
+      this.outputBuffer = "";
+      this.shell!.on("data", handler);
+      this.shell!.write(wrapped);
+    });
+  }
+
+  private next() {
+    const n = this.queue.shift();
+    if (n) n();
+  }
+
+  disconnect() {
+    this.shell?.end();
+    this.client?.end();
+    this.shell = null;
+  }
+
+  get isConnected() {
+    return !!this.shell;
+  }
+
+  get reconnectAttempts() {
+    return this._reconnectAttempts;
+  }
+
+  getStatus(): "connected" | "disconnected" | "reconnecting" {
+    if (this.shell) return "connected";
+    if (this._reconnectAttempts > 0) return "reconnecting";
+    return "disconnected";
+  }
+}
+</file>
+
+<file path="tools.ts">
+import { Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { SshSession } from "./session.js";
+import { detectSystem } from "./system-detect.js";
+import { truncateOutput, formatResult } from "./utils.js";
+
+const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+
+export function registerTools(pi: ExtensionAPI, session: SshSession) {
+  const guard = () => {
+    if (!session.conn)
+      throw new Error("Not connected to any server. Use /ssh connect first.");
+  };
+
+  pi.registerTool({
+    name: "ssh_bash",
+    label: "SSH Bash",
+    description:
+      "Run a shell command on the remote server via persistent SSH session. cd state and exported env vars persist across calls.",
+    parameters: Type.Object({
+      command: Type.String({ description: "Shell command to execute on the remote server" }),
+      timeout_seconds: Type.Optional(
+        Type.Number({ default: 30, description: "Timeout in seconds" }),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx: ExtensionContext) {
+      guard();
+      try {
+        const res = await session.conn!.exec(params.command, (params.timeout_seconds ?? 30) * 1000);
+        return {
+          content: [{ type: "text" as const, text: truncateOutput(formatResult(res)) }],
+          details: {
+            stdout: res.stdout,
+            stderr: res.stderr,
+            exitCode: res.exitCode,
+          },
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: e.message }],
+          isError: true,
+          details: {},
+        };
+      }
+    },
+    renderCall(args: any, theme: any, _ctx: any) {
+      const label = theme.fg("toolTitle", theme.bold("ssh $ "));
+      const cmd = theme.fg("accent", args.command ?? "");
+      return new Text(label + cmd, 0, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "running…"), 0, 0);
+      const exitCode = result.details?.exitCode ?? 0;
+      const exitColor = exitCode === 0 ? "success" : "error";
+      const exitLabel = theme.fg(exitColor, `[exit ${exitCode}]`);
+      const stdout = (result.details?.stdout ?? result.content ?? "").trim();
+      const body = stdout ? "\n" + theme.fg("dim", stdout) : "";
+      return new Text(exitLabel + body, 0, 0);
+    },
+  });
+
+  pi.registerTool({
+    name: "ssh_read",
+    label: "SSH Read",
+    description: "Read a file from the remote server via SSH. Use max_lines for large files.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path to the file on the remote server" }),
+      max_lines: Type.Optional(
+        Type.Number({ description: "Maximum number of lines to read (uses head -n)" }),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx: ExtensionContext) {
+      guard();
+      const cmd = params.max_lines
+        ? `head -n ${params.max_lines} ${sq(params.path)}`
+        : `cat ${sq(params.path)}`;
+      const res = await session.conn!.exec(cmd);
+      return {
+        content: [{ type: "text" as const, text: truncateOutput(res.stdout) }],
+        details: {
+          content: res.stdout,
+          exitCode: res.exitCode,
+        },
+      };
+    },
+    renderCall(args: any, theme: any, _ctx: any) {
+      const label = theme.fg("toolTitle", theme.bold("ssh read "));
+      const path = theme.fg("accent", args.path ?? "");
+      return new Text(label + path, 0, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "reading…"), 0, 0);
+      const text = result.details?.content ?? "";
+      const lines = text.split("\n").length;
+      const summary = theme.fg("success", `✓ ${lines} lines`);
+      if (!options.expanded) return new Text(summary, 0, 0);
+      return new Text(summary + "\n" + theme.fg("dim", text), 0, 0);
+    },
+  });
+
+  pi.registerTool({
+    name: "ssh_write",
+    label: "SSH Write",
+    description:
+      "Write content to a file on the remote server. Uses safe Base64 chunked transfer to avoid escaping issues.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path to the file on the remote server" }),
+      content: Type.String({ description: "Content to write to the file" }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx: ExtensionContext) {
+      guard();
+      const b64 = Buffer.from(params.content).toString("base64");
+      const chunks = b64.match(/.{1,32000}/g) || [];
+      const sPath = sq(params.path);
+      await session.conn!.exec(`mkdir -p "$(dirname ${sPath})" && > ${sPath}.b64`);
+      for (const chunk of chunks) {
+        await session.conn!.exec(`echo -n ${sq(chunk)} >> ${sPath}.b64`);
+      }
+      await session.conn!.exec(`base64 -d < ${sPath}.b64 > ${sPath} && rm ${sPath}.b64`);
+      return {
+        content: [{ type: "text" as const, text: `Written to ${params.path}` }],
+        details: {},
+      };
+    },
+    renderCall(args: any, theme: any, _ctx: any) {
+      const label = theme.fg("toolTitle", theme.bold("ssh write "));
+      const path = theme.fg("accent", args.path ?? "");
+      const size = args.content ? theme.fg("dim", ` (${args.content.length} bytes)`) : "";
+      return new Text(label + path + size, 0, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "writing…"), 0, 0);
+      return new Text(theme.fg("success", "✓ written"), 0, 0);
+    },
+  });
+
+  pi.registerTool({
+    name: "ssh_edit",
+    label: "SSH Edit",
+    description:
+      "Surgical string replacement in a remote file. Only edits if old_str is found exactly once.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Absolute path to the file on the remote server" }),
+      old_str: Type.String({ description: "Exact text to replace" }),
+      new_str: Type.String({ description: "Replacement text" }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx: ExtensionContext) {
+      guard();
+      const res = await session.conn!.exec(`base64 ${sq(params.path)}`);
+      const content = Buffer.from(res.stdout, "base64").toString("utf8");
+      const occurrences = content.split(params.old_str).length - 1;
+
+      if (occurrences === 0) {
+        return {
+          content: [{ type: "text" as const, text: "Error: old_str not found in file." }],
+          details: {},
+        };
+      }
+
+      if (occurrences > 1) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: old_str found ${occurrences} times. Make it more specific so it matches exactly once.`
+          }],
+          details: {},
+        };
+      }
+      const newContent = content.replace(params.old_str, params.new_str);
+      const b64 = Buffer.from(newContent).toString("base64");
+      await session.conn!.exec(`echo ${sq(b64)} | base64 -d > ${sq(params.path)}`);
+      return {
+        content: [{ type: "text" as const, text: `Edited ${params.path}` }],
+        details: {},
+      };
+    },
+    renderCall(args: any, theme: any, _ctx: any) {
+      const label = theme.fg("toolTitle", theme.bold("ssh edit "));
+      const path = theme.fg("accent", args.path ?? "");
+      return new Text(label + path, 0, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "editing…"), 0, 0);
+      return new Text(theme.fg("success", "✓ patched"), 0, 0);
+    },
+  });
+
+  pi.registerTool({
+    name: "ssh_detect_system",
+    label: "SSH Detect System",
+    description:
+      "Re-run OS, user, package manager, and privilege detection on the remote server. " +
+      "Use this if the environment may have changed since connecting (e.g. new software installed).",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx: ExtensionContext) {
+      guard();
+      try {
+        session.system = await detectSystem(session.conn!);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(session.system, null, 2),
+            },
+          ],
+          details: { system: session.system },
+        };
+      } catch (e: any) {
+        return {
+          content: [{ type: "text" as const, text: `Detection failed: ${e.message}` }],
+          isError: true,
+          details: {},
+        };
+      }
+    },
+    renderCall(_args: any, theme: any, _ctx: any) {
+      return new Text(theme.fg("toolTitle", theme.bold("ssh re-detect")), 0, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "detecting…"), 0, 0);
+      try {
+        const info = result.details?.system ?? JSON.parse(result.content ?? "{}");
+        const text =
+          theme.fg("success", "✓ ") +
+          theme.fg("accent", info.os ?? "?") + " " +
+          theme.fg("dim", info.packageManager ?? "") + " " +
+          theme.fg("muted", info.user ?? "");
+        return new Text(text, 0, 0);
+      } catch {
+        return new Text(theme.fg("success", "✓ detected"), 0, 0);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "ssh_status",
+    label: "SSH Status",
+    description: "Returns the current SSH connection status",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx: ExtensionContext) {
+      if (!session.conn) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ status: "disconnected", reconnectAttempts: 0 }, null, 2),
+            },
+          ],
+          details: {},
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                status: session.conn.getStatus(),
+                reconnectAttempts: session.conn.reconnectAttempts,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+        details: {},
+      };
+    },
+    renderCall(_args: any, theme: any, _ctx: any) {
+      return new Text(theme.fg("toolTitle", theme.bold("ssh status")), 0, 0);
+    },
+    renderResult(result: any, options: any, theme: any, _ctx: any) {
+      if (options.isPartial) return new Text(theme.fg("dim", "checking…"), 0, 0);
+      try {
+        const info = JSON.parse(
+          Array.isArray(result.content)
+            ? result.content.map((c: any) => c.text ?? "").join("")
+            : result.content ?? "{}"
+        );
+        const statusColor = info.status === "connected" ? "success" : "error";
+        const statusText = theme.fg(statusColor, info.status ?? "unknown");
+        const reconnects = info.reconnectAttempts > 0
+          ? theme.fg("warning", ` (reconnects: ${info.reconnectAttempts})`)
+          : "";
+        return new Text(statusText + reconnects, 0, 0);
+      } catch {
+        return new Text(theme.fg("success", "✓ ok"), 0, 0);
+      }
+    },
+  });
+}
+</file>
+
+<file path="README.md">
+# pi-ssh-link 🔗
+
+**Persistent SSH bridge for AI remote system management.**
+
+pi-ssh-link gives your AI agent persistent "hands" on a remote Linux server. It opens a stateful SSH session with reliable command parsing (printable sentinels, PTY-safe), auto-detects the OS and package manager, and provides safe file operations via Base64 chunked transfer. SSH output is shown in a live TUI panel inside pi — no external windows, works on any platform.
+
+Built for [pi](https://pi.dev), the terminal AI coding agent.
+
+## Features
+
+- **Stateful persistent session** — `cd` into a directory, export env vars, they persist across tool calls
+- **Auto system detection** — identifies Alpine (apk), Debian/Ubuntu (apt), Arch (pacman), user privileges
+- **PTY-safe parsing** — printable sentinels (`__PI_SSH_`) avoid control-character corruption
+- **Command echo eliminated** — `stty -echo` so the command text never bleeds into stdout
+- **Safe file operations** — `ssh_write` uses Base64 chunked transfer, `ssh_edit` does surgical string replacement
+- **Live TUI panel** — native pi panel shows real-time SSH output with line numbers, OS badge, scroll controls
+- **Cross-platform** — works on Linux, macOS, Windows, and Termux (no PowerShell, no external processes)
+- **Graceful timeout + queue** — commands time out and are interruptible; concurrent calls queue automatically
+- **Rich tool rendering** — tool calls show coloured labels, file paths, exit codes in pi's chat output
+
+## Install
+
+```bash
+pi install git:github.com/kexar007/pi-ssh-link
+```
+
+Or clone and use locally:
+
+```bash
+git clone https://github.com/kexar007/pi-ssh-link.git
+pi -e ./pi-ssh-link
+```
+
+## Usage
+
+### Connect to a server
+
+```
+/ssh connect root@myserver.com
+```
+
+You'll be prompted for a password. Or pass it inline:
+
+```
+/ssh connect root@myserver.com:2222 -p mypassword
+```
+
+### Commands
+
+| Command                                           | Description                             |
+| ------------------------------------------------- | --------------------------------------- |
+| `/ssh connect [user@]host[:port] [-p <password>]` | Connect to a remote server              |
+| `/ssh disconnect`                                 | Close the current SSH session           |
+| `/ssh status`                                     | Show connection info and system details |
+
+### Shortcuts
+
+| Shortcut    | Action                    |
+| ----------- | ------------------------- |
+| `Ctrl+Q`     | Toggle the SSH output panel |
+| `Alt+K`      | Scroll up (vim-style)       |
+| `Alt+J`      | Scroll down (vim-style)     |
+| `Alt+G`      | Jump to bottom (vim-style)  |
+| `Alt+L`      | Clear panel output          |
+
+### Tools (callable by the AI)
+
+| Tool                | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| `ssh_bash`          | Run any shell command (cd/env state persists)  |
+| `ssh_read`          | Read a remote file                             |
+| `ssh_write`         | Write content to a remote file (Base64 chunks) |
+| `ssh_edit`          | Surgical string replacement in a remote file   |
+| `ssh_detect_system` | Get structured OS/user/package-manager info    |
+
+### Quick commands while connected
+
+When the SSH session is active, type `!command` in pi to run it directly on the remote server:
+
+```
+!ls -la /var/www
+!systemctl status nginx
+```
+
+## How it works
+
+1. Opens a PTY shell via `ssh2`
+2. Sends `stty -echo && stty cols 1000` to suppress echo and prevent line-wrap mangling
+3. Uses printable sentinels (`__PI_SSH_START_123__`, `__PI_SSH_END_123__0`) to delimit command output
+4. Parses stdout between sentinels, extracts exit codes
+5. Detects OS from `/etc/os-release` and user from `id`
+6. Files are transferred as Base64 to avoid shell escaping issues
+7. Live output streams into a native TUI panel above the editor — scrollable, theme-aware
+
+## Requirements
+
+- [pi](https://pi.dev) terminal AI coding agent
+- Node.js 18+
+- SSH access to a Linux server
+
+## Development
+
+```bash
+git clone https://github.com/kexar007/pi-ssh-link.git
+cd pi-ssh-link
+npm install
+# Edit source, then test with:
+pi -e ./
+```
+
+## License
+
+MIT
+</file>
+
+<file path="session.ts">
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SshConnection } from "./connection.js";
+import { UiManager } from "./ui-manager.js";
+import { detectSystem } from "./system-detect.js";
+import type { SshProfile, SystemInfo } from "./types.js";
+
+export class SshSession {
+  public conn: SshConnection | null = null;
+  public ui: UiManager = new UiManager();
+  public system: SystemInfo | null = null;
+  public profile: SshProfile | null = null;
+
+  async connect(p: SshProfile, ctx: ExtensionContext) {
+    this.profile = p;
+    this.ui.updateContext(ctx);
+
+    // Mount the panel with "connecting" state BEFORE connection,
+    // so output streams into the already-visible panel.
+    this.ui.setConnecting(p);
+
+    this.conn = new SshConnection(
+      (text) => this.ui.onOutput(text),
+      (code) => this.ui.onExitCode(code)
+    );
+    await this.conn.connect(p);
+
+    // Detection is best-effort — a failed probe must never abort the connection
+    try {
+      this.system = await detectSystem(this.conn);
+    } catch (err) {
+      console.warn("[pi-ssh-link] System detection failed, using defaults:", err);
+      this.system = {
+        os:             "unknown",
+        packageManager: "unknown",
+        arch:           "unknown",
+        user:           "unknown",
+        hasSudo:        false,
+        shell:          "unknown",
+        isContainer:    false,
+        isTermux:       false,
+        raw:            { uname: "", osRelease: "" },
+      };
+    }
+
+    // Transition from "connecting" to "connected" (no buffer clear)
+    this.ui.onConnect(p);
+    // Push system info to panel for the header badge
+    this.ui.setSystemInfo(this.system);
+  }
+
+  disconnect() {
+    this.conn?.disconnect();
+    this.conn = null;
+    this.system = null;
+    this.ui.onDisconnect();
+  }
+}
+</file>
+
+<file path="ssh-panel.ts">
+import { truncateToWidth } from "@earendil-works/pi-tui";
+import type { SshProfile, SystemInfo } from "./types.js";
+import { stripAnsi } from "./utils.js";
+
+const MAX_BUFFER_LINES = 200;
+const DEFAULT_VISIBLE_LINES = 10;
+
+export class SshPanel {
+  private buffer: string[] = [];
+  private scrollOffset = 0;
+  private connected = false;
+  private connecting = false;
+  private profile: SshProfile | null = null;
+  private systemInfo: SystemInfo | null = null;
+  private lastExitCode: number | null = null;
+  private cachedWidth?: number;
+  private cachedLines?: string[];
+  private themeRef: any = null;
+
+  // --- Public API ---
+
+  write(text: string): void {
+    const lines = text.split("\n");
+    for (const line of lines) {
+      const cleaned = stripAnsi(line);
+      if (cleaned.trim() !== "") {
+        this.buffer.push(cleaned);
+      }
+    }
+    if (this.buffer.length > MAX_BUFFER_LINES) {
+      this.buffer = this.buffer.slice(this.buffer.length - MAX_BUFFER_LINES);
+    }
+    this.invalidate();
+  }
+
+  setExitCode(code: number): void {
+    this.lastExitCode = code;
+    this.invalidate();
+  }
+
+  setSystemInfo(info: SystemInfo): void {
+    this.systemInfo = info;
+    this.invalidate();
+  }
+
+  setConnecting(profile: SshProfile): void {
+    this.connecting = true;
+    this.connected = false;
+    this.profile = profile;
+    this.buffer = [];
+    this.scrollOffset = 0;
+    this.lastExitCode = null;
+    this.systemInfo = null;
+    this.invalidate();
+  }
+
+  markConnected(profile: SshProfile): void {
+    this.connected = true;
+    this.connecting = false;
+    this.profile = profile;
+    this.invalidate();
+  }
+
+
+  setDisconnected(): void {
+    this.connected = false;
+    this.invalidate();
+  }
+
+  clear(): void {
+    this.buffer = [];
+    this.scrollOffset = 0;
+    this.invalidate();
+  }
+
+  // --- Component interface ---
+
+  render(width: number): string[] {
+    if (this.cachedLines && this.cachedWidth === width) {
+      return this.cachedLines;
+    }
+    const theme = this.themeRef;
+    if (!theme) {
+      this.cachedLines = [];
+      return [];
+    }
+
+    const lines: string[] = [];
+
+    // Header line
+    lines.push(this.renderHeader(width, theme));
+
+    // Separator
+    lines.push(theme.fg("dim", "─".repeat(width)));
+
+    // Output lines
+    const visibleCount = DEFAULT_VISIBLE_LINES;
+    const totalLines = this.buffer.length;
+    const endIndex = Math.max(0, totalLines - this.scrollOffset);
+    const startIndex = Math.max(0, endIndex - visibleCount);
+    const slice = this.buffer.slice(startIndex, endIndex);
+
+    // Empty state when connected but no output
+    if (totalLines === 0 && this.connected) {
+      lines.push(theme.fg("dim", "  Waiting for output — run commands via ssh_bash or ! prefix"));
+      // Pad remaining lines
+      for (let i = 1; i < visibleCount; i++) {
+        lines.push("");
+      }
+    } else if (totalLines === 0) {
+      // Disconnected empty
+      while (slice.length < visibleCount) {
+        slice.unshift("");
+      }
+      for (const line of slice) {
+        lines.push(truncateToWidth(line, width));
+      }
+    } else {
+      // Line number width: right-align up to 3 digits (999)
+      const numW = totalLines > 999 ? 4 : 3;
+      const contentW = Math.max(4, width - numW - 1); // -1 for space separator
+
+      for (let i = 0; i < slice.length; i++) {
+        const lineNum = startIndex + i + 1;
+        const numStr = String(lineNum).padStart(numW);
+        const prefix = theme.fg("dim", numStr + " ");
+        const content = truncateToWidth(slice[i] || "", contentW);
+        lines.push(prefix + content);
+      }
+    }
+
+    // Footer: scroll info + key hints
+    lines.push(this.renderFooter(width, theme, totalLines, startIndex, endIndex));
+
+    this.cachedLines = lines;
+    this.cachedWidth = width;
+    return lines;
+  }
+
+  // Scroll controls — called via registered shortcuts (widgets don't get focus in pi-tui)
+  scrollUp(): void {
+    this.scrollOffset = Math.min(this.scrollOffset + 1, Math.max(0, this.buffer.length - 1));
+    this.invalidate();
+  }
+
+  scrollDown(): void {
+    this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+    this.invalidate();
+  }
+
+  scrollToBottom(): void {
+    this.scrollOffset = 0;
+    this.invalidate();
+  }
+
+  clearPanel(): void {
+    this.clear();
+  }
+
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+
+  // Called by the widget factory to inject theme
+  setTheme(theme: any): void {
+    this.themeRef = theme;
+    this.invalidate();
+  }
+
+  // --- Private helpers ---
+
+  private renderHeader(width: number, theme: any): string {
+    // Connecting state
+    if (this.connecting && this.profile) {
+      const host = `${this.profile.username}@${this.profile.host}`;
+      const port = this.profile.port !== 22 ? `:${this.profile.port}` : "";
+      return truncateToWidth(
+        theme.fg("warning", "SSH ⟳") + " " + theme.fg("dim", `connecting to ${host}${port}…`),
+        width
+      );
+    }
+
+    // Disconnected state
+    if (!this.connected || !this.profile) {
+      return truncateToWidth(theme.fg("dim", "SSH ✗ not connected"), width);
+    }
+
+    // Connected: build host + system badge + exit code
+    const host = `${this.profile.username}@${this.profile.host}`;
+    const port = this.profile.port !== 22 ? `:${this.profile.port}` : "";
+
+    let badge = "";
+    if (this.systemInfo) {
+      const os = this.systemInfo.os !== "unknown" ? this.systemInfo.os : "";
+      const pm = this.systemInfo.packageManager !== "unknown" ? this.systemInfo.packageManager : "";
+      const parts = [os, pm].filter(Boolean);
+      if (parts.length > 0) {
+        badge = " " + theme.fg("dim", `[${parts.join("/")}]`);
+      }
+    }
+
+    let exitStr = "";
+    if (this.lastExitCode !== null) {
+      exitStr = this.lastExitCode === 0
+        ? "  " + theme.fg("success", "exit 0")
+        : "  " + theme.fg("error", `exit ${this.lastExitCode}`);
+    }
+
+    const prefix = theme.fg("success", "SSH ●") + " ";
+    const hostPart = theme.fg("accent", theme.bold(host + port));
+    const suffix = badge + exitStr;
+
+    // Fit host+port first, then badge+exit, truncate host if needed
+    const minSuffixW = 20; // reserve space for badge+exit
+    const available = Math.max(20, width - minSuffixW);
+    let truncatedHost = truncateToWidth(hostPart, available);
+
+    return truncateToWidth(prefix + truncatedHost + suffix, width);
+  }
+
+  private renderFooter(width: number, theme: any, totalLines: number, startIndex: number, endIndex: number): string {
+    if (totalLines === 0) {
+      return theme.fg("dim", "Alt+K/J scroll  Alt+G=bottom  Alt+L=clear");
+    }
+
+    const posInfo = `lines ${startIndex + 1}-${endIndex}/${totalLines}`;
+    const scrolled = this.scrollOffset > 0
+      ? theme.fg("warning", `  ↑${this.scrollOffset} above`)
+      : "";
+    const keys = theme.fg("dim", "  Alt+K/J scroll  G=bottom  L=clear");
+
+    return truncateToWidth(theme.fg("dim", posInfo) + scrolled + keys, width);
+  }
+}
+</file>
+
+<file path="index.ts">
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SshSession } from "./session.js";
+import { registerTools } from "./tools.js";
+import type { SshProfile } from "./types.js";
+
+export default function (pi: ExtensionAPI) {
+  const session = new SshSession();
+  let toolsRegistered = false;
+
+  const updateFooter = (ctx: ExtensionCommandContext) => {
+    if (!session.conn) {
+      ctx.ui.setFooter(undefined);
+      return;
+    }
+    ctx.ui.setFooter((_tui: any, theme: any) => ({
+      render(_width: number) {
+        const host = session.profile?.host ?? "";
+        const user = session.system?.user ?? "";
+        const os = session.system?.os ?? "";
+        const pm = session.system?.packageManager ?? "";
+        const reconnects: number = session.conn?.reconnectAttempts ?? 0;
+
+        const hostStr = theme.fg("accent", `${user}@${host}`);
+        const osStr = os ? theme.fg("dim", ` [${os}${pm ? " / " + pm : ""}]`) : "";
+        const reconnectStr = reconnects > 0
+          ? theme.fg("warning", ` ⚠ reconnects:${reconnects}`)
+          : "";
+        const dot = theme.fg("success", "● ");
+
+        return [dot + hostStr + osStr + reconnectStr];
+      },
+      invalidate() {},
+    }));
+  };
+
+  const ensureTools = () => {
+    if (!toolsRegistered) {
+      registerTools(pi, session);
+      toolsRegistered = true;
+    }
+  };
+
+  const parseProfile = (args: string): { profile: SshProfile; password?: string } => {
+    // Format: [user@]host[:port] [-p|--password <password>]
+    const parts = args.trim().split(/\s+/);
+    let hostPart = "";
+    let password: string | undefined;
+
+    for (let i = 0; i < parts.length; i++) {
+      if ((parts[i] === "-p" || parts[i] === "--password") && i + 1 < parts.length) {
+        password = parts[i + 1];
+        i++; // skip the value
+      } else {
+        hostPart = parts[i];
+      }
+    }
+
+    let username = "root";
+    let host = hostPart;
+    let port = 22;
+
+    if (hostPart.includes("@")) {
+      const atParts = hostPart.split("@");
+      username = atParts[0];
+      host = atParts.slice(1).join("@");
+    }
+
+    if (host.startsWith("[")) {
+      // Bracketed IPv6: [::1] or [::1]:2222
+      const bracket = host.indexOf("]");
+      if (bracket !== -1) {
+        const afterBracket = host.slice(bracket + 1);
+        host = host.slice(1, bracket);
+        if (afterBracket.startsWith(":")) {
+          const parsedPort = parseInt(afterBracket.slice(1), 10);
+          if (!isNaN(parsedPort)) port = parsedPort;
+        }
+      }
+    } else if (host.includes(":")) {
+      const lastColon = host.lastIndexOf(":");
+      const portStr = host.slice(lastColon + 1);
+      host = host.slice(0, lastColon);
+      const parsedPort = parseInt(portStr, 10);
+      if (!isNaN(parsedPort)) port = parsedPort;
+    }
+
+    const profile: SshProfile = { host, port, username };
+    if (password) profile.password = password;
+
+    return { profile, password };
+  };
+
+  pi.registerCommand("ssh", {
+    description: "SSH remote session management",
+    getArgumentCompletions: (prefix: string) => {
+      const subcommands = ["connect", "disconnect", "status"];
+      const filtered = subcommands.filter((s) => s.startsWith(prefix));
+      return filtered.length > 0 ? filtered.map((v) => ({ value: v, label: v })) : null;
+    },
+    handler: async (args: string, ctx: ExtensionCommandContext) => {
+      const parts = args.trim().split(/\s+/);
+      const sub = parts[0]?.toLowerCase();
+      const rest = parts.slice(1).join(" ");
+
+      switch (sub) {
+        case "connect": {
+          if (!rest) {
+            ctx.ui.notify("Usage: /ssh connect [user@]host[:port] [-p <password>]", "error");
+            return;
+          }
+          if (session.conn) {
+            ctx.ui.notify("Already connected. Disconnect first.", "error");
+            return;
+          }
+          const { profile } = parseProfile(rest);
+
+          // If no password was provided via CLI flag, prompt for it
+          if (!profile.password) {
+            const pw = await ctx.ui.input(
+              `Password for ${profile.username}@${profile.host}:${profile.port}:`,
+              "",
+            );
+            if (pw) profile.password = pw;
+          }
+
+          ctx.ui.notify(
+            `Connecting to ${profile.username}@${profile.host}:${profile.port}...`,
+            "info",
+          );
+          try {
+            await session.connect(profile, ctx);
+            ensureTools();
+            ctx.ui.notify(
+              `Connected! OS: ${session.system?.os}, user: ${session.system?.user}, pm: ${session.system?.packageManager}`,
+              "info",
+            );
+            updateFooter(ctx);
+          } catch (e: any) {
+            ctx.ui.notify(`Connection failed: ${e.message}`, "error");
+            session.disconnect();
+          }
+          return;
+        }
+
+        case "disconnect": {
+          if (!session.conn) {
+            ctx.ui.notify("Not connected.", "info");
+            return;
+          }
+          session.disconnect();
+          ctx.ui.setFooter(undefined);
+          ctx.ui.notify("Disconnected.", "info");
+          return;
+        }
+
+        case "status": {
+          if (!session.conn || !session.system) {
+            ctx.ui.notify("Not connected. Use /ssh connect to connect.", "info");
+            return;
+          }
+          ctx.ui.notify(
+            `Connected to ${session.system.user}@${session.system.os} | pm: ${session.system.packageManager} | sudo: ${session.system.hasSudo}`,
+            "info",
+          );
+          return;
+        }
+
+        default:
+          ctx.ui.notify("Usage: /ssh connect|disconnect|status", "error");
+      }
+    },
+  });
+
+  // Keyboard shortcuts for the SSH output panel
+  // Note: pi-tui widgets don't receive focus, so we use registered
+  // shortcuts instead of inline handleInput. These keys avoid conflicts
+  // with pi's built-in bindings (see keybindings.md).
+  pi.registerShortcut("ctrl+q", {
+    description: "Toggle SSH output panel",
+    handler: async (ctx: ExtensionContext) => {
+      session.ui.updateContext(ctx);
+      session.ui.togglePanel();
+    },
+  });
+
+  pi.registerShortcut("alt+k", {
+    description: "SSH panel: scroll up",
+    handler: async (ctx: ExtensionContext) => {
+      session.ui.updateContext(ctx);
+      session.ui.scrollUp();
+    },
+  });
+
+  pi.registerShortcut("alt+j", {
+    description: "SSH panel: scroll down",
+    handler: async (ctx: ExtensionContext) => {
+      session.ui.updateContext(ctx);
+      session.ui.scrollDown();
+    },
+  });
+
+  pi.registerShortcut("alt+g", {
+    description: "SSH panel: scroll to bottom",
+    handler: async (ctx: ExtensionContext) => {
+      session.ui.updateContext(ctx);
+      session.ui.scrollToBottom();
+    },
+  });
+
+  pi.registerShortcut("alt+l", {
+    description: "SSH panel: clear output",
+    handler: async (ctx: ExtensionContext) => {
+      session.ui.updateContext(ctx);
+      session.ui.clearPanel();
+    },
+  });
+
+  // Route !commands through SSH when connected
+  pi.on("user_bash", (event, _ctx: ExtensionContext) => {
+    if (!session.conn?.isConnected) return;
+    return {
+      operations: {
+        async exec(command: string, _cwd: string, _options: any) {
+          const result = await session.conn!.exec(command, 30000);
+          return {
+            output: (result.stdout + (result.stderr ? "\n" + result.stderr : "")).trim(),
+            exitCode: result.exitCode,
+            cancelled: false,
+            truncated: result.stdout.length >= 8000,
+          };
+        },
+      },
+    };
+  });
+
+  // Keep ctx fresh on every agent start
+  pi.on("agent_start", async (_event: any, ctx: ExtensionContext) => {
+    session.ui.updateContext(ctx);
+  });
+
+  pi.on("session_shutdown", async () => {
+    if (session.conn) {
+      session.disconnect();
+    }
+  });
+}
+</file>
+
+<file path="ui-manager.ts">
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SshPanel } from "./ssh-panel.js";
+import type { SshProfile, SystemInfo } from "./types.js";
+
+export class UiManager {
+  private panel = new SshPanel();
+  private ctx: ExtensionContext | null = null;
+  private tui: any = null;
+  private panelVisible = true;
+
+  updateContext(ctx: ExtensionContext): void {
+    this.ctx = ctx;
+    // Inject theme into panel whenever context updates
+    if (ctx.ui?.theme) {
+      this.panel.setTheme(ctx.ui.theme);
+    }
+  }
+
+  setConnecting(profile: SshProfile): void {
+    this.panel.setConnecting(profile);
+    this.mountWidget();
+  }
+
+  setSystemInfo(info: SystemInfo): void {
+    this.panel.setSystemInfo(info);
+    this.tui?.requestRender();
+  }
+
+  onConnect(profile: SshProfile): void {
+    this.panel.markConnected(profile);
+    this.mountWidget();
+  }
+
+  onDisconnect(): void {
+    this.panel.setDisconnected();
+    this.ctx?.ui.setWidget("ssh-panel", undefined);
+  }
+
+  onOutput(text: string): void {
+    this.panel.write(text);
+    this.tui?.requestRender();
+  }
+
+  onExitCode(code: number): void {
+    this.panel.setExitCode(code);
+    this.tui?.requestRender();
+  }
+
+  togglePanel(): void {
+    this.panelVisible = !this.panelVisible;
+    if (this.panelVisible) {
+      this.mountWidget();
+      this.ctx?.ui.notify("SSH panel shown", "info");
+    } else {
+      this.ctx?.ui.setWidget("ssh-panel", undefined);
+      this.ctx?.ui.notify("SSH panel hidden", "info");
+    }
+  }
+
+  scrollUp(): void {
+    this.panel.scrollUp();
+    this.tui?.requestRender();
+  }
+
+  scrollDown(): void {
+    this.panel.scrollDown();
+    this.tui?.requestRender();
+  }
+
+  scrollToBottom(): void {
+    this.panel.scrollToBottom();
+    this.tui?.requestRender();
+  }
+
+  clearPanel(): void {
+    this.panel.clearPanel();
+    this.tui?.requestRender();
+  }
+
+  private mountWidget(): void {
+    if (!this.ctx || !this.panelVisible) return;
+    const panel = this.panel;
+
+    this.ctx.ui.setWidget("ssh-panel", (tui, theme) => {
+      this.tui = tui;
+      panel.setTheme(theme);
+      return {
+        render: (w: number) => panel.render(w),
+        invalidate: () => panel.invalidate(),
+      };
+    });
+  }
+
+}
+</file>
+
+</files>
