@@ -64,6 +64,7 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
     name: "ssh_read",
     label: "SSH Read",
     description: "Read a file from the remote server via SSH. Use max_lines for large files.",
+    promptSnippet: "Use this for all remote file ops when connected",
     parameters: Type.Object({
       path: Type.String({ description: "Absolute path to the file on the remote server" }),
       max_lines: Type.Optional(
@@ -75,12 +76,12 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
       const cmd = params.max_lines
         ? `head -n ${params.max_lines} ${sq(params.path)}`
         : `cat ${sq(params.path)}`;
-      const res = await session.conn!.exec(cmd);
+      const res = await session.conn!.rawExec(cmd);
       return {
         content: [{ type: "text" as const, text: truncateOutput(res.stdout) }],
         details: {
+          path: params.path,
           content: res.stdout,
-          exitCode: res.exitCode,
         },
       };
     },
@@ -104,6 +105,7 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
     label: "SSH Write",
     description:
       "Write content to a file on the remote server. Uses safe Base64 chunked transfer to avoid escaping issues.",
+    promptSnippet: "Use this for all remote file ops when connected",
     parameters: Type.Object({
       path: Type.String({ description: "Absolute path to the file on the remote server" }),
       content: Type.String({ description: "Content to write to the file" }),
@@ -113,11 +115,13 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
       const b64 = Buffer.from(params.content).toString("base64");
       const chunks = b64.match(/.{1,32000}/g) || [];
       const sPath = sq(params.path);
-      await session.conn!.exec(`mkdir -p "$(dirname ${sPath})" && > ${sPath}.b64`);
+      // Atomic write: write to a temp file first, then mv to final destination
+      await session.conn!.exec(`mkdir -p "$(dirname ${sPath})"`);
+      await session.conn!.exec(`tmp=$(mktemp) && > "$tmp".b64`);
       for (const chunk of chunks) {
-        await session.conn!.exec(`echo -n ${sq(chunk)} >> ${sPath}.b64`);
+        await session.conn!.exec(`echo -n ${sq(chunk)} >> "$tmp".b64`);
       }
-      await session.conn!.exec(`base64 -d < ${sPath}.b64 > ${sPath} && rm ${sPath}.b64`);
+      await session.conn!.exec(`base64 -d < "$tmp".b64 > "$tmp" && mv "$tmp" ${sPath} && rm -f "$tmp".b64`);
       return {
         content: [{ type: "text" as const, text: `Written to ${params.path}` }],
         details: {},
@@ -140,6 +144,7 @@ export function registerTools(pi: ExtensionAPI, session: SshSession) {
     label: "SSH Edit",
     description:
       "Surgical string replacement in a remote file. Only edits if old_str is found exactly once.",
+    promptSnippet: "Use this for all remote file ops when connected",
     parameters: Type.Object({
       path: Type.String({ description: "Absolute path to the file on the remote server" }),
       old_str: Type.String({ description: "Exact text to replace" }),

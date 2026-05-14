@@ -6,18 +6,18 @@ export function makeReadySentinel(): string {
   return `${SENTINEL_PREFIX}READY_`;
 }
 
-export function makeStartSentinel(id: number): string {
-  return `${SENTINEL_PREFIX}START_${id}__`;
+export function makeStartSentinel(id: number, rand: string): string {
+  return `${SENTINEL_PREFIX}START_${id}_${rand}__`;
 }
 
-export function makeEndSentinel(id: number): string {
-  return `${SENTINEL_PREFIX}END_${id}__`;
+export function makeEndSentinel(id: number, rand: string): string {
+  return `${SENTINEL_PREFIX}END_${id}_${rand}__`;
 }
 
 export function parseEndSentinel(text: string): { id: number; exitCode: number } | null {
-  const m = text.match(/__PI_SSH_END_(\d+)__(\d+)/);
+  const m = text.match(/__PI_SSH_END_(\d+)_([a-f0-9]+)__(\d+)/);
   if (!m) return null;
-  return { id: parseInt(m[1], 10), exitCode: parseInt(m[2], 10) };
+  return { id: parseInt(m[1], 10), exitCode: parseInt(m[3], 10) };
 }
 
 export function stripAnsi(t: string): string {

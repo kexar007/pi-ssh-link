@@ -112,7 +112,12 @@ export default function (pi: ExtensionAPI) {
             ctx.ui.notify("Already connected. Disconnect first.", "error");
             return;
           }
-          const { profile } = parseProfile(rest);
+          const { profile, password } = parseProfile(rest);
+
+          // Warn if password was passed via -p (leaves traces in history/ps)
+          if (password) {
+            ctx.ui.notify("WARNING: Passing passwords via -p is insecure and leaves traces. Prefer the interactive prompt.", "warning");
+          }
 
           // If no password was provided via CLI flag, prompt for it
           if (!profile.password) {

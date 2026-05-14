@@ -8,7 +8,7 @@ export class SshConnection {
   private shell: NodeJS.ReadWriteStream | null = null;
   private outputBuffer = "";
   private busy = false;
-  private queue: Array<() => void> = [];
+  private queue: Array<{ run: () => void; reject: (err: Error) => void }> = [];
   private profile: SshProfile | null = null;
   private _reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 3;
@@ -57,6 +57,20 @@ export class SshConnection {
       };
 
       this.client
+        .on("close", () => {
+          this.shell = null;
+          this.busy = false;
+          const q = this.queue;
+          this.queue = [];
+          q.forEach(item => item.reject(new Error("Connection lost, command cancelled")));
+        })
+        .on("error", () => {
+          this.shell = null;
+          this.busy = false;
+          const q = this.queue;
+          this.queue = [];
+          q.forEach(item => item.reject(new Error("Connection lost, command cancelled")));
+        })
         .on("ready", () => {
           this.client!.shell({ term: "xterm-256color" }, (err, stream) => {
             if (err) return finish(err);
@@ -113,13 +127,14 @@ export class SshConnection {
     }
     if (this.busy)
       return new Promise<CommandResult>((resolve, reject) =>
-        this.queue.push(() => this.exec(cmd, timeout).then(resolve, reject)),
+        this.queue.push({ run: () => this.exec(cmd, timeout).then(resolve, reject), reject }),
       );
 
     this.busy = true;
     const id = Date.now();
-    const startSentinel = makeStartSentinel(id);
-    const endSentinel = makeEndSentinel(id);
+    const rand = Math.random().toString(16).slice(2, 8);
+    const startSentinel = makeStartSentinel(id, rand);
+    const endSentinel = makeEndSentinel(id, rand);
     // echo with printable sentinels; capture exit code: END_<id>__<code>
     const wrapped = `echo ${startSentinel}; ${cmd}; echo ${endSentinel}$?\n`;
 
@@ -176,9 +191,60 @@ export class SshConnection {
     });
   }
 
+  /**
+   * Execute a command via a dedicated channel (NON-PTY).
+   * Binary-safe: no terminal line discipline, no sentinel wrapping.
+   * Because SSH supports multiplexing channels, this does NOT go through
+   * the busy-queue used by the PTY shell.
+   */
+  async rawExec(cmd: string, timeout = 30000): Promise<CommandResult> {
+    if (!this.client) {
+      throw new Error("Not connected");
+    }
+    return new Promise<CommandResult>((resolve, reject) => {
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        reject(new Error("rawExec timed out"));
+      }, timeout);
+
+      this.client!.exec(cmd, (err, channel) => {
+        if (err) {
+          clearTimeout(timer);
+          return reject(err);
+        }
+        let stdout = "";
+        let stderr = "";
+
+        channel.on("data", (data: Buffer) => {
+          if (!timedOut) stdout += data.toString("utf8");
+        });
+
+        channel.stderr.on("data", (data: Buffer) => {
+          if (!timedOut) stderr += data.toString("utf8");
+        });
+
+        channel.on("close", (code: number | null) => {
+          clearTimeout(timer);
+          if (timedOut) return;
+          resolve({
+            stdout: stdout.trim(),
+            stderr,
+            exitCode: code ?? -1,
+          });
+        });
+
+        channel.on("error", (channelErr: Error) => {
+          clearTimeout(timer);
+          if (!timedOut) reject(channelErr);
+        });
+      });
+    });
+  }
+
   private next() {
     const n = this.queue.shift();
-    if (n) n();
+    if (n) n.run();
   }
 
   disconnect() {
