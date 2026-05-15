@@ -16,7 +16,6 @@ A [pi](https://pi.dev) extension that enables persistent SSH sessions with real-
 - **System auto-detection** — Identifies architecture (x86_64, ARM, RISC-V), user privileges, shell, and container environment
 - **Graceful timeout & queueing** — Long-running commands time out and are interruptible; concurrent calls queue automatically
 - **Rich UI rendering** — Command calls show labels, file paths, exit codes, and colored status in chat output
-- **Cross-platform compatible** — Works on Linux, macOS, Windows, and Termux (no external processes required)
 
 ---
 
@@ -341,10 +340,6 @@ See [skills/ssh-link/SKILL.md](skills/ssh-link/SKILL.md) for AI agent integratio
 ## License
 
 MIT
-
-## Contributing
-
-Contributions welcome! Please open issues and pull requests on [GitHub](https://github.com/kexar007/pi-ssh-link).
 
 ## Development
 
